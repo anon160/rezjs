@@ -1,0 +1,35 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Database & Storage
+*.db
+*.sqlite
+*.sqlite3
+resilient.db
+
+# Dynamic Lakes & Parquet Data Output
+real_world_test_data/modernized_cargo_lake.parquet
+real_world_test_data/unified_parquet_lake/
+*.parquet
+
+# Virtual Environments
+venv/
+.venv/
+env/
+
+# IDE & Editor Settings
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment Variables
+.env
+.env.local
