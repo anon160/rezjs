@@ -70,7 +70,16 @@ def align_schema_via_langgraph(
             # 3. Match transformed values back to sample_row source keys using AST extraction
             mapping = _extract_column_mapping_from_code(patch_code, target_field_specs)
 
-    # 4. Exact case-insensitive match fallback for unmapped fields
+    # 4. Vector Cosine Similarity Fallback for unmapped fields
+    from core.vector_engine import align_columns_vectorized
+    unmapped_target_specs = {t: target_field_specs[t] for t in target_field_specs.keys() if t not in mapping.values()}
+    if unmapped_target_specs:
+        vec_mapping = align_columns_vectorized(list(sample_row.keys()), unmapped_target_specs)
+        for src, tgt in vec_mapping.items():
+            if src not in mapping and tgt not in mapping.values():
+                mapping[src] = tgt
+
+    # 5. Exact case-insensitive match fallback for any remaining unmapped fields
     sample_keys_lower = {k.lower(): k for k in sample_row.keys()}
     for target_field in target_field_specs.keys():
         if target_field not in mapping.values():
@@ -249,8 +258,24 @@ def execute_daft_modernization(
         else:
             os.remove(output_parquet_path)
 
-    # Step 3: Write snappy-compressed Parquet using Daft
-    df.write_parquet(output_parquet_path, compression="snappy")
+    # Step 3: Attach native 384-dim vector embeddings for semantic search & AI querying
+    from core.vector_engine import compute_vector_batch
+    import pyarrow.parquet as pq
+
+    arrow_tbl = df.to_arrow()
+    col_names = arrow_tbl.column_names
+    num_rows = arrow_tbl.num_rows
+
+    text_summaries = []
+    for i in range(num_rows):
+        row_str_parts = [f"{c}:{arrow_tbl[c][i].as_py()}" for c in col_names[:6]]
+        text_summaries.append(" | ".join(row_str_parts))
+
+    vector_arr = compute_vector_batch(text_summaries)
+    arrow_tbl = arrow_tbl.append_column("vector", vector_arr)
+
+    # Step 4: Write snappy-compressed Parquet with vector column
+    pq.write_table(arrow_tbl, output_parquet_path, compression="snappy")
 
     elapsed_sec = round(time.time() - start_time, 3)
 
