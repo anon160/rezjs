@@ -2,10 +2,33 @@ import sys
 import subprocess
 import json
 import base64
+import ast
 from typing import Dict, Any, Tuple, Optional
 from core.schemas import validate_dynamic_payload, SCHEMA_TEMPLATES
 
 DEFAULT_LOGISTICS_FIELDS = SCHEMA_TEMPLATES["Logistics & Supply Chain (LogisticsShipment)"]["fields"]
+ALLOWED_MODULES = {"json", "re", "datetime", "time", "math", "string", "typing", "base64"}
+
+def _is_safe_patch_ast(patch_code: str) -> Tuple[bool, str]:
+    """Validates patch code AST to prevent import of unauthorized system modules (e.g. os, subprocess, shutil)."""
+    try:
+        tree = ast.parse(patch_code)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    mod_root = alias.name.split(".")[0]
+                    if mod_root not in ALLOWED_MODULES:
+                        return False, f"Security Violation: Import of '{alias.name}' module is not allowed in patches."
+            elif isinstance(node, ast.ImportFrom):
+                if node.module:
+                    mod_root = node.module.split(".")[0]
+                    if mod_root not in ALLOWED_MODULES:
+                        return False, f"Security Violation: Import from '{node.module}' module is not allowed in patches."
+    except SyntaxError as e:
+        return False, f"Syntax Error in patch: {e}"
+    except Exception as e:
+        return False, f"AST Inspection Error: {e}"
+    return True, "OK"
 
 def execute_patch(
     patch_code: str,
@@ -17,11 +40,17 @@ def execute_patch(
     
     Validates output against user-defined dynamic JSON schema field specifications.
     Uses base64 encoding to safely pass payload data without code injection risks.
+    Performs AST safety validation against untrusted system imports.
     """
     if not field_specs:
         field_specs = DEFAULT_LOGISTICS_FIELDS
 
-    # Encode payload as base64 to prevent code injection via triple-quote escapes
+    # AST Security Inspection
+    is_safe, msg = _is_safe_patch_ast(patch_code)
+    if not is_safe:
+        return False, None, msg
+
+    # Encode payload as base64 to prevent code injection via string escapes
     payload_json = json.dumps(raw_payload)
     b64_payload = base64.b64encode(payload_json.encode()).decode()
 

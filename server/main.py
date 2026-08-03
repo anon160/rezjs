@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Header, Depends, Query, BackgroundTasks, status
 from pydantic import BaseModel, Field
 from typing import Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 import json
 import logging
@@ -33,20 +33,20 @@ app = FastAPI(
 
 
 class IngestResponse(BaseModel):
-    status: str = Field(..., example="SUCCESS")
-    source_id: str = Field(..., example="maersk_v2_feed")
-    record_id: str = Field(..., example="rec_8f9a2b3c")
-    drift_detected: bool = Field(..., example=False)
-    processed_at: str = Field(..., example="2026-08-01T22:05:00Z")
+    status: str = Field(..., json_schema_extra={"example": "SUCCESS"})
+    source_id: str = Field(..., json_schema_extra={"example": "maersk_v2_feed"})
+    record_id: str = Field(..., json_schema_extra={"example": "rec_8f9a2b3c"})
+    drift_detected: bool = Field(..., json_schema_extra={"example": False})
+    processed_at: str = Field(..., json_schema_extra={"example": "2026-08-01T22:05:00Z"})
     delivered_data: Optional[Dict[str, Any]] = None
     patch_version: Optional[int] = None
     message: Optional[str] = None
 
 class DocOnboardRequest(BaseModel):
-    doc_source: Optional[str] = Field(None, example="https://dummyjson.com/products/1 or OpenAPI JSON spec text")
-    mcp_server_url: Optional[str] = Field(None, example="mcp://api.maersk.com/v1")
-    source_id: str = Field(..., example="vendor_catalog_feed")
-    company_name: Optional[str] = Field("Apex Logistics", example="Apex Logistics")
+    doc_source: Optional[str] = Field(None, json_schema_extra={"example": "https://dummyjson.com/products/1 or OpenAPI JSON spec text"})
+    mcp_server_url: Optional[str] = Field(None, json_schema_extra={"example": "mcp://api.maersk.com/v1"})
+    source_id: str = Field(..., json_schema_extra={"example": "vendor_catalog_feed"})
+    company_name: Optional[str] = Field("Apex Logistics", json_schema_extra={"example": "Apex Logistics"})
 
 # --- AUTHENTICATION (SHA-256 hashed key lookup) ---
 
@@ -174,7 +174,7 @@ def health_check():
         "status": "healthy",
         "platform": "Project Resilient Dynamic Auto-DataOps",
         "database": "SQLite",
-        "timestamp": datetime.utcnow().isoformat() + "Z"
+        "timestamp": datetime.now(timezone.utc).isoformat()
     }
 
 @app.get("/api/v1/pipelines")
@@ -213,6 +213,34 @@ def list_dlq(
             for e in dlq_entries
         ]
     }
+
+@app.post("/api/v1/dead-letter-queue/{record_id}/replay")
+def replay_dlq_record(
+    record_id: str,
+    background_tasks: BackgroundTasks,
+    client: Client = Depends(verify_client_api_key),
+    db: Session = Depends(get_db)
+):
+    """Re-executes the ingestion flow for a quarantined payload in the Dead Letter Queue."""
+    entry = db.query(DeadLetterRecord).filter(
+        DeadLetterRecord.record_id == record_id,
+        DeadLetterRecord.client_id == client.client_id
+    ).first()
+
+    if not entry:
+        raise HTTPException(status_code=404, detail=f"DLQ record '{record_id}' not found.")
+
+    raw_payload = json.loads(entry.raw_payload)
+    db.delete(entry)
+    db.commit()
+
+    return ingest_data(
+        source_id=entry.source_id,
+        raw_payload=raw_payload,
+        background_tasks=background_tasks,
+        client=client,
+        db=db
+    )
 
 @app.post("/api/v1/onboard-from-docs")
 def onboard_vendor_from_docs(
@@ -264,14 +292,19 @@ def ingest_data(
 ):
     """Primary Ingestion Endpoint for Vendor API Data Feeds with Dynamic User-Defined Schemas."""
     record_id = f"rec_{uuid.uuid4().hex[:8]}"
-    now_iso = datetime.utcnow().isoformat() + "Z"
+    now_iso = datetime.now(timezone.utc).isoformat()
     
     # Parse custom field specs if provided, else use default LogisticsShipment template
     if field_specs_json:
         try:
             field_specs = json.loads(field_specs_json)
-        except Exception:
-            field_specs = SCHEMA_TEMPLATES["Logistics & Supply Chain (LogisticsShipment)"]["fields"]
+            if not isinstance(field_specs, dict):
+                raise ValueError("field_specs_json must be a JSON object dictionary.")
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid field_specs_json parameter: {e}"
+            )
     else:
         field_specs = SCHEMA_TEMPLATES["Logistics & Supply Chain (LogisticsShipment)"]["fields"]
 

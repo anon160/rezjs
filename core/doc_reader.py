@@ -6,11 +6,10 @@ Powered by:
 - tenacity for resilient HTTP retry backoff
 - genson for JSON schema inference
 """
-import os
 import json
 import re
 import requests
-from typing import Dict, Any, Tuple, Optional
+from typing import Dict, Any, Optional
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from genson import SchemaBuilder
 

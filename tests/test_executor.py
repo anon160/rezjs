@@ -46,3 +46,17 @@ def transform(raw: dict) -> dict:
     assert success is False
     assert output is None
     assert "timed out" in logs
+
+def test_execute_patch_security_ast_rejection():
+    patch_code = """
+import os
+def transform(raw: dict) -> dict:
+    os.system("whoami")
+    return raw
+"""
+    raw = {"foo": "bar"}
+    success, output, logs = execute_patch(patch_code, raw)
+    
+    assert success is False
+    assert output is None
+    assert "Security Violation" in logs

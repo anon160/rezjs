@@ -8,7 +8,7 @@ from sqlalchemy import create_engine, Column, Integer, String, Float, Boolean, T
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 
 # SQLite Database — configurable via environment variable
-DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:////home/anon/Documents/corp/resilient.db")
+DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///resilient.db")
 
 engine = create_engine(
     DATABASE_URL,

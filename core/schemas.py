@@ -1,5 +1,5 @@
 from pydantic import BaseModel, create_model, ValidationError
-from typing import Dict, Any, Tuple, Optional
+from typing import Dict, Any, Tuple
 from functools import lru_cache
 from genson import SchemaBuilder
 
