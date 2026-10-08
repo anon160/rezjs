@@ -35,22 +35,26 @@ The platform operates on a composable open-source stack driven by an AI-Native e
                           └─────────── (Retries Loop) ◄────────┘
                                                                │
                                                        (Passes Test & Verification)
-                                                               │
-                                                               ▼
-                                                  [ Internal Company Ops Center ]
-                                                  (1-Click Internal Engineer Verification)
-                                                               │
-                                                               ▼
-                                              [ 100% Zero-Touch Client Stream ]
-                                              (Zero Client Maintenance / Max Lock-In)
+                                                                │
+                                                                ▼
+                                                 [ Enterprise Git Review Engine ]
+                                                 (AI Authors Conventional Commit,
+                                                  Creates `autodataops-patch/...` branch,
+                                                  Exports `.patch` & Opens Git PR)
+                                                                │
+                                    ┌───────────────────────────┴───────────────────────────┐
+                                    ▼                                                       ▼
+                      [ Autonomous Mode (Default) ]                           [ Supervised / Git Mode ]
+                      - Auto-deploys patch immediately                        - Quarantines payload to DLQ
+                      - Zero-touch client stream                              - Waits for enterprise PR merge
 
 ## The Production Tech Stack
 
-   1. Ingestion & Orchestration: Built using Apache NiFi and LangGraph. LangGraph manages stateful agentic loops, schema drift detection, sandboxed patch generation, and automated verification workflows.
+   1. Ingestion & Orchestration: Built using FastAPI and LangGraph. LangGraph manages stateful agentic loops, schema drift detection, sandboxed patch generation, and automated verification workflows.
    2. Validation & Shield Tier: Every incoming JSON payload or CSV string is aggressively validated against a strict, predefined contract using Python’s Pydantic library.
    3. The Brain (Managed AI API for MVP $\rightarrow$ Custom 35B MoE at Scale): For Phase-1 MVP, the brain utilizes high-speed commercial AI APIs (e.g., Gemini 2.0 Pro / Claude 3.5 Sonnet) via structured tool calling to keep fixed infrastructure overhead near $0. At scale, this can transition to self-hosted open-source models (such as Qwen-2.5-Coder-32B or Mixtral-8x7B) on dedicated vLLM GPU clusters.
-   4. Internal Human-in-the-Loop Ops Layer (Zero-Touch Guarantee): To create total vendor lock-in, the client is never asked to review or maintain broken APIs. Instead, generated patches are reviewed in 5 seconds by your internal operations team (1–2 internal engineers max) before auto-updating the client feed. The client experiences 100% unbreakable uptime with zero engineering effort.
-   5. Local Fast Compute Layer: The actual heavy data processing skips the AI layer completely. Cleaned data is bulk-processed instantly on local infrastructure using DuckDB or Apache Spark, ensuring token costs remain flat regardless of data scale.
+   4. Enterprise GitOps HITL Review Layer: Rather than forcing enterprise teams to monitor a bespoke internal UI or approval dashboard, the AI agent autonomously interfaces with the enterprise's existing code review system (GitHub PRs / GitLab MRs). The agent analyzes the AST to write a semantic Conventional Commit message, creates an isolated review branch, exports the patch, and triggers a PR. In supervised mode, drifted records are held in a Dead Letter Queue (DLQ) until the PR is merged.
+   5. Local Fast Compute Layer: The actual heavy data processing skips the AI layer completely. Cleaned data is bulk-processed instantly on local infrastructure using Daft and DuckDB, ensuring token costs remain flat regardless of data scale.
 
 ------------------------------
 ## 3. Product Offerings & Monetization Strategy
@@ -111,26 +115,25 @@ Execute this blueprint completely before engaging venture capital investors.
 
                  [ Phase-1 MVP Step-by-Step Execution Plan ]
 
-  Step 1: Set Up Sandbox  ──►  Step 2: Core Prompting  ──►  Step 3: Build Dashboard  ──►  Step 4: Launch Pilot
-  (Isolate Python via          (Write strict JSON           (Light UI showing real-       (Deploy 30-day free
-   Docker Containers)           Schema requirements)         time self-healing loop)       trial with client)
+  Step 1: Set Up Sandbox  ──►  Step 2: Core Prompting  ──►  Step 3: GitOps HITL Engine ──►  Step 4: Launch Pilot
+  (Isolate Python via          (Write strict JSON           (AI-authored Conventional     (Deploy 30-day free
+   Sandboxed AST eval)          Schema requirements)         Commits & auto-Git PRs)       trial with client)
 
 
    1. Step 1: Build the Sandboxed Execution Loop
-   Create a local Python architecture using LangGraph. Set up a secure, isolated Podman container sandbox on your computer. This allows your script to feed error logs to the AI model, allow the model to compile and test code safely inside the box, inspect the response code, and verify that the patch fixes the issue without exposing your host machine.
+   Create a local Python architecture using LangGraph. Set up an isolated execution sandbox. This allows your script to feed error logs to the AI model, compile and test candidate transformation code safely, inspect the response, and verify that the patch fixes the issue without risking corrupting production data.
    2. Step 2: Core Engineering Prompting & Managed AI API Setup
-   Connect your orchestration agent to a managed commercial AI API (e.g., Gemini 2.0 / Claude 3.5 Sonnet) via structured tool calling to keep fixed MVP infrastructure costs near $0. Develop the master system prompt to force strict JSON tool-calling. The prompt ingests: (a) a sample of the raw breaking payload structural keys, (b) the target Pydantic schema contract, and (c) the terminal error stack. The output must strictly be a clean, sandboxed Python mapping patch function and diff.
-   3. Step 3: Build the Internal Ops Verification Dashboard
-   Wrap a clean, minimal visual frontend over your Python code using Streamlit or Gradio. Design it as an **Internal Ops Command Center**: A red light signals an external API feed has broken, a live console shows the AI API writing and testing a Podman patch, and your internal engineer clicks **"Approve & Heal"** in 3 seconds. The client's downstream feed self-heals without them ever knowing an error occurred.
+   Connect your orchestration agent to a managed commercial AI API (e.g., Gemini 2.0 / Claude 3.5 Sonnet) via structured tool calling to keep fixed MVP infrastructure costs near $0. Develop the master system prompt to force strict JSON tool-calling. The prompt ingests: (a) a sample of the raw breaking payload structural keys, (b) the target Pydantic schema contract, and (c) the terminal error stack. The output must strictly be a clean, verified Python mapping patch function and diff.
+   3. Step 3: Enterprise GitOps HITL & Autonomous PR Trigger
+   Integrate directly into the enterprise's native code review system (GitHub / GitLab) rather than a bespoke web dashboard. When schema drift is intercepted, the AI agent AST-inspects the generated patch, authors an informative Conventional Commit message, creates an isolated review branch (`autodataops-patch/...`), exports the patch file, and triggers a Pull Request. Support dual modes: `autonomous` (auto-deploys with PR audit trail) and `supervised`/`git` (quarantines to Dead Letter Queue until PR is merged).
    4. Step 4: Secure Pilot Validation (The "Zero-Touch" Pitch)
    Approach 2 or 3 local mid-market freight forwarders or data-heavy startups. Offer them a completely free 30-day trial with a **Zero-Touch SLA**: "Connect your chaotic vendor feeds to our single API. We guarantee 99.99% data pipeline uptime with zero maintenance required from your engineering team." This creates immediate, unbreakable vendor lock-in.
 
-Once this visual MVP dashboard is live and backed by verified data from your pilot users, you have successfully eliminated technical and data safety risk. You are ready to open fundraising rounds for enterprise expansion at a highly favorable valuation.
+Once this headless API gateway and GitOps review pipeline are live and backed by verified data from your pilot users, you have successfully eliminated technical and data safety risk. You are ready to open fundraising rounds for enterprise expansion at a highly favorable valuation.
 ------------------------------
-We have updated your operational plan to reflect the Human-in-the-Loop gatekeeper and Managed AI API MVP strategy. I can help you implement the next step:
-
-* Write the Python ingestion engine with Pydantic schema contract validation and Docker sandboxing.
-* Write the master system prompt for the AI API to generate clean schema mapping patches via tool calling.
-* Build the Streamlit / Gradio visual proof dashboard with 1-click engineer approval.
-
-Let me know which step you'd like to tackle first!
+The architecture is fully headless, featuring:
+* FastAPI Ingestion Gateway with SHA-256 API Key Authentication and Pydantic Contract Validation.
+* LangGraph Self-Healing Agent with live AST verification and automatic retry loops.
+* Enterprise Git/GitLab Review Engine with AI Conventional Commit authoring and automated PR creation.
+* Dead Letter Queue with error auditing and replay capabilities.
+* High-performance Daft + DuckDB batch lake modernization.

@@ -1,0 +1,39 @@
+{
+  "name": "autodataops",
+  "version": "1.0.0",
+  "description": "AI-native schema resilience & self-healing library with GitOps PR review",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "e2e": "tsx test-e2e.ts"
+  },
+  "keywords": [
+    "schema-drift",
+    "self-healing",
+    "dataops",
+    "webhooks",
+    "gitops",
+    "zod",
+    "ai-sdk"
+  ],
+  "author": "",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@ai-sdk/anthropic": "^1.1.0",
+    "@ai-sdk/google": "^1.1.0",
+    "@ai-sdk/openai": "^1.1.0",
+    "@octokit/rest": "^21.1.0",
+    "ai": "^4.1.0",
+    "quickjs-emscripten": "^0.31.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

@@ -33,3 +33,8 @@ env/
 # Environment Variables
 .env
 .env.local
+
+# Node & TypeScript
+node_modules/
+dist/
+*.tsbuildinfo
