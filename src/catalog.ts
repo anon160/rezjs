@@ -61,13 +61,24 @@ export class FilePatchCatalog implements BasePatchCatalog {
     if (!fs.existsSync(this.patchesDir)) return;
 
     const files = fs.readdirSync(this.patchesDir);
-    const pattern = /^patch_(.+)_v(\d+)\.(ts|js)$/;
 
     for (const file of files) {
-      const match = file.match(pattern);
-      if (match) {
-        const sourceId = match[1];
-        const version = parseInt(match[2], 10);
+      let sourceId: string | undefined;
+      let version: number | undefined;
+
+      const patchMatch = file.match(/^patch_(.+)_v(\d+)\.(?:ts|js)$/);
+      if (patchMatch) {
+        sourceId = this.sanitize(patchMatch[1]);
+        version = parseInt(patchMatch[2], 10);
+      } else {
+        const schemaMatch = file.match(/^[a-zA-Z0-9]+_(.+)_v(\d+)\.(?:ts|js)$/);
+        if (schemaMatch) {
+          sourceId = this.sanitize(schemaMatch[1]);
+          version = parseInt(schemaMatch[2], 10);
+        }
+      }
+
+      if (sourceId && version !== undefined) {
         const fullPath = path.join(this.patchesDir, file);
         const code = fs.readFileSync(fullPath, "utf-8");
 
@@ -80,6 +91,7 @@ export class FilePatchCatalog implements BasePatchCatalog {
   }
 
   public getPatch(sourceId: string): string | null {
+    this.reloadFromDisk();
     const cleanId = this.sanitize(sourceId);
     return this.memoryCache.get(cleanId)?.code ?? null;
   }

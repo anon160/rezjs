@@ -1,8 +1,72 @@
 import { describe, it, expect } from "vitest";
-import { AutoDataOps, IngestionResult, MemoryPatchCatalog } from "../src/index.js";
+import * as os from "node:os";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { z } from "zod";
+import {
+  AutoDataOps,
+  resilient,
+  defineConfig,
+  IngestionResult,
+  MemoryPatchCatalog,
+} from "../src/index.js";
 
-describe("AutoDataOps Pluggable SDK", () => {
-  it("should process a clean payload matching the target contract immediately", async () => {
+describe("AutoDataOps Pluggable SDK with Mandatory Git & User Contracts", () => {
+  it("should fail fast if running outside a Git repository", async () => {
+    // Create an empty temporary directory without git init
+    const nonGitDir = fs.mkdtempSync(path.join(os.tmpdir(), "non-git-"));
+    try {
+      const ops = new AutoDataOps({ repoDir: nonGitDir });
+      await expect(
+        ops.ingest({
+          source: "test_feed",
+          payload: { foo: "bar" },
+        })
+      ).rejects.toThrow(/Git repository is mandatory/i);
+    } finally {
+      fs.rmSync(nonGitDir, { recursive: true, force: true });
+    }
+  });
+
+  it("should support defineConfig and user-defined Zod contracts", async () => {
+    const config = defineConfig({
+      model: {
+        provider: "google",
+        name: "gemini-2.5-flash",
+      },
+      git: {
+        baseBranch: "main",
+      },
+      contracts: {
+        CustomerOrder: z.object({
+          order_id: z.string(),
+          total_usd: z.number().positive(),
+          status: z.enum(["PENDING", "COMPLETED"]),
+        }),
+      },
+    });
+
+    const ops = new AutoDataOps({ config });
+
+    // Ingest clean payload matching user contract
+    const cleanPayload = {
+      order_id: "ord_8822",
+      total_usd: 129.5,
+      status: "COMPLETED",
+    };
+
+    const res = await ops.ingest({
+      source: "shopify_feed",
+      schema: "CustomerOrder",
+      payload: cleanPayload,
+    });
+
+    expect(res.isSuccess()).toBe(true);
+    expect(res.data?.order_id).toBe("ord_8822");
+    expect(res.data?.total_usd).toBe(129.5);
+  });
+
+  it("should process a clean payload matching the default contract immediately", async () => {
     const ops = new AutoDataOps({ schema: "LogisticsShipment" });
     const cleanPayload = {
       container_id: "MSKU1234567",
@@ -61,8 +125,8 @@ describe("AutoDataOps Pluggable SDK", () => {
     expect(res.data?.weight_kg).toBe(32000.0);
   });
 
-  it("should quarantine payload in 'git' / 'supervised' mode on unhealed drift", async () => {
-    const ops = new AutoDataOps({ schema: "LogisticsShipment", reviewMode: "git" });
+  it("should quarantine payload and intercept drift", async () => {
+    const ops = new AutoDataOps({ schema: "LogisticsShipment" });
     const brokenPayload = {
       completely_unknown_key: "bad_data",
     };
@@ -73,22 +137,32 @@ describe("AutoDataOps Pluggable SDK", () => {
     expect(res.data).toBeNull();
   });
 
-  it("should allow custom ad-hoc field specifications", async () => {
-    const customSpecs = {
+  it("should allow registering contracts dynamically via registerContract", async () => {
+    const ops = new AutoDataOps();
+    ops.registerContract("Invoice", {
       invoice_id: "str",
       amount: "float",
       paid: "bool",
-    };
+    });
 
-    const ops = new AutoDataOps({ fieldSpecs: customSpecs, schema: "BillingInvoice" });
     const validData = {
       invoice_id: "INV-100",
       amount: 450.75,
       paid: true,
     };
 
-    const res = await ops.process("stripe_feed", validData);
+    const res = await ops.ingest({
+      source: "stripe_feed",
+      schema: "Invoice",
+      payload: validData,
+    });
+
     expect(res.status).toBe("SUCCESS");
     expect(res.data?.amount).toBe(450.75);
+  });
+
+  it("should support top-level resilient singleton export", async () => {
+    expect(resilient).toBeDefined();
+    expect(typeof resilient.ingest).toBe("function");
   });
 });

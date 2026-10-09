@@ -75,4 +75,12 @@ export class IngestionResult<T = any> {
   public isQuarantined(): boolean {
     return this.status === "PENDING_GIT_REVIEW" || this.status === "HEALING_FAILED";
   }
+
+  public get prUrl(): string | null {
+    return this.prDetails?.remotePrUrl ?? null;
+  }
+
+  public get patchFile(): string | null {
+    return this.prDetails?.patchFile ?? null;
+  }
 }

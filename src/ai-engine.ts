@@ -70,7 +70,24 @@ export function hasConfiguredCredentials(): boolean {
  * - 'groq:llama-3.3-70b-versatile'
  * - 'ollama:qwen2.5-coder'
  */
-export function resolveLanguageModel(modelOverride?: string): LanguageModel {
+export function resolveLanguageModel(
+  modelOverride?: string | { model?: string; provider?: string; name?: string; fallback?: string; baseURL?: string; apiKey?: string }
+): LanguageModel {
+  if (typeof modelOverride === "object" && modelOverride !== null) {
+    if (modelOverride.baseURL) {
+      const customOpenAI = createOpenAI({
+        baseURL: modelOverride.baseURL,
+        apiKey: modelOverride.apiKey || "custom",
+      });
+      const modelName = modelOverride.name || modelOverride.model || "default";
+      return customOpenAI(modelName);
+    }
+    const requestedStr =
+      modelOverride.model ||
+      (modelOverride.provider && modelOverride.name ? `${modelOverride.provider}:${modelOverride.name}` : undefined);
+    return resolveLanguageModel(requestedStr);
+  }
+
   const registry = createUnifiedModelRegistry();
   const requested = modelOverride || process.env.AUTODATAOPS_MODEL || process.env.RESILIENT_LLM_MODEL;
 
@@ -149,7 +166,7 @@ export async function runSelfHealingAgent(options: {
   fieldSpecs?: Record<string, string>;
   schemaName?: string;
   validationError?: string;
-  modelOverride?: string;
+  modelOverride?: string | Record<string, any>;
 }): Promise<SelfHealingResponse> {
   const {
     brokenPayload,

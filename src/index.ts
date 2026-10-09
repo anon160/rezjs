@@ -2,11 +2,12 @@
  * AutoDataOps — Pure TypeScript AI-Native Data Resilience & Self-Healing Library.
  *
  * Pluggable SDK for real-time schema drift interception, autonomous AI self-healing,
- * WebAssembly QuickJS isolate sandboxing, and Enterprise GitOps PR review.
+ * WebAssembly QuickJS isolate sandboxing, and Mandatory Enterprise GitOps PR review.
  *
- * Zero Database or HTTP Server Overhead.
+ * Zero Database or HTTP Server Overhead. Git is the Patch Ledger.
  */
 
+import * as path from "node:path";
 import { z } from "zod";
 import {
   IngestionResult,
@@ -19,6 +20,7 @@ import {
   createDynamicSchema,
   validatePayload,
   inferSchemaFromSample,
+  extractFieldSpecs,
 } from "./contracts.js";
 import {
   BasePatchCatalog,
@@ -31,6 +33,8 @@ import {
   exportPatchFile,
   generatePrMarkdown,
   generateSemanticCommitMessage,
+  isGitRepository,
+  listReviewBranches,
   GitReviewResult,
 } from "./git-review.js";
 import {
@@ -39,51 +43,245 @@ import {
   resolveLanguageModel,
   hasConfiguredCredentials,
 } from "./ai-engine.js";
+import {
+  ResilientConfig,
+  ModelConfig,
+  GitConfig,
+  ContractDefinition,
+  defineConfig,
+  loadConfig,
+} from "./config.js";
 
 export interface AutoDataOpsOptions {
+  config?: ResilientConfig;
   schema?: string;
   fieldSpecs?: Record<string, string>;
-  reviewMode?: ReviewMode;
+  contract?: ContractDefinition;
+  contracts?: Record<string, ContractDefinition>;
   catalog?: BasePatchCatalog;
   repoDir?: string;
-  pushRemote?: boolean;
+  patchDir?: string;
+  baseBranch?: string;
+  autoPush?: boolean;
+  createPullRequest?: boolean;
+  model?: ModelConfig | string;
+  reviewMode?: ReviewMode;
+}
+
+export interface IngestOptions<T = any> {
+  source: string;
+  payload: Record<string, any>;
+  schema?: string | ContractDefinition;
+  model?: ModelConfig | string;
 }
 
 export class AutoDataOps {
-  public readonly schemaName: string;
-  public readonly fieldSpecs: Record<string, string>;
-  public readonly reviewMode: ReviewMode;
-  public readonly catalog: BasePatchCatalog;
-  public readonly repoDir?: string;
-  public readonly pushRemote: boolean;
+  public defaultSchemaName: string;
+  public repoDir: string;
+  public patchDir: string;
+  public baseBranch: string;
+  public autoPush: boolean;
+  public createPullRequest: boolean;
+  public modelConfig?: ModelConfig | string;
+  public catalog: BasePatchCatalog;
+  private contracts = new Map<string, ContractDefinition>();
 
   constructor(options: AutoDataOpsOptions = {}) {
-    this.schemaName = options.schema || "LogisticsShipment";
-    const envReviewMode = process.env.AUTODATAOPS_REVIEW_MODE as ReviewMode | undefined;
-    this.reviewMode = envReviewMode || options.reviewMode || "autonomous";
-    this.repoDir = options.repoDir;
-    this.pushRemote = options.pushRemote ?? false;
+    this.repoDir = path.resolve(options.repoDir || options.config?.git?.repoDir || process.cwd());
+    this.patchDir = options.patchDir || options.config?.git?.patchDir || "patches";
+    this.baseBranch = options.baseBranch || options.config?.git?.baseBranch || "main";
+    this.autoPush = options.autoPush ?? options.config?.git?.autoPush ?? Boolean(process.env.GITHUB_TOKEN && process.env.GITHUB_REPOSITORY);
+    this.createPullRequest = options.createPullRequest ?? options.config?.git?.createPullRequest ?? true;
+    this.modelConfig = options.model ?? options.config?.model;
+    this.defaultSchemaName = options.schema || "LogisticsShipment";
 
-    if (options.fieldSpecs) {
-      this.fieldSpecs = options.fieldSpecs;
-    } else if (this.schemaName in SCHEMA_TEMPLATES) {
-      this.fieldSpecs = SCHEMA_TEMPLATES[this.schemaName].fields;
-    } else {
-      this.fieldSpecs = {};
+    // Initialize built-in default templates
+    for (const [name, tpl] of Object.entries(SCHEMA_TEMPLATES)) {
+      this.contracts.set(name, tpl.fields);
     }
 
-    this.catalog = options.catalog ?? new MemoryPatchCatalog();
+    // Register user-defined contracts from options/config
+    if (options.config?.contracts) {
+      for (const [name, contract] of Object.entries(options.config.contracts)) {
+        this.contracts.set(name, contract);
+      }
+    }
+    if (options.contracts) {
+      for (const [name, contract] of Object.entries(options.contracts)) {
+        this.contracts.set(name, contract);
+      }
+    }
+    if (options.fieldSpecs) {
+      this.contracts.set(this.defaultSchemaName, options.fieldSpecs);
+    }
+    if (options.contract) {
+      this.contracts.set(this.defaultSchemaName, options.contract);
+    }
+
+    // Default patch catalog is FilePatchCatalog rooted at git-tracked patches/ dir
+    this.catalog = options.catalog ?? new FilePatchCatalog(path.join(this.repoDir, this.patchDir));
+  }
+
+  public get schemaName(): string {
+    return this.defaultSchemaName;
+  }
+
+  public get fieldSpecs(): Record<string, string> {
+    const contract = this.contracts.get(this.defaultSchemaName);
+    return contract ? extractFieldSpecs(contract) : {};
+  }
+
+  public get reviewMode(): ReviewMode {
+    return "git";
   }
 
   /**
-   * Processes an incoming data payload through validation, patch execution, and AI self-healing.
-   *
-   * 1. Checks catalog for existing patch -> executes patch in <1ms if present.
-   * 2. Validates clean payload against target contract schema.
-   * 3. If drift is detected, invokes AI agent to generate and verify a patch in QuickJS WASM.
-   * 4. Provisions an isolated Git review branch with Conventional Commit and PR info.
-   * 5. In 'autonomous' mode: deploys patch to active catalog and delivers clean data.
-   *    In 'git'/'supervised' mode: returns PENDING_GIT_REVIEW (quarantined awaiting merge).
+   * Registers a user-defined schema contract (Zod object or field specification mapping).
+   */
+  public registerContract(name: string, contract: ContractDefinition): this {
+    this.contracts.set(name, contract);
+    return this;
+  }
+
+  /**
+   * Retrieves a registered contract by name.
+   */
+  public getContract(name: string): ContractDefinition | undefined {
+    return this.contracts.get(name);
+  }
+
+  /**
+   * Verifies that the instance is running inside a Git repository.
+   * Throws an error if Git is not present, because Git is the mandatory patch ledger.
+   */
+  public async ensureGitRepository(): Promise<void> {
+    const isRepo = await isGitRepository(this.repoDir);
+    if (!isRepo) {
+      throw new Error(
+        `[AutoDataOps] Git repository is mandatory. AutoDataOps uses Git as its versioned patch ledger and review system. Please initialize a git repository ('git init') or specify a valid 'repoDir' in config.`
+      );
+    }
+  }
+
+  /**
+   * Primary developer ingestion API:
+   * Validates payload -> Checks Git patch catalog -> Sandboxes patch -> Synthesizes & Git-commits on drift.
+   */
+  public async ingest<T = any>(options: IngestOptions<T>): Promise<IngestionResult<T>> {
+    const { source, payload, schema, model } = options;
+
+    // 1. Mandatory Git check
+    await this.ensureGitRepository();
+
+    // 2. Resolve contract & field specifications
+    let contractToUse: ContractDefinition;
+    let schemaName: string;
+
+    if (typeof schema === "string") {
+      schemaName = schema;
+      contractToUse = this.contracts.get(schema) || SCHEMA_TEMPLATES.LogisticsShipment.fields;
+    } else if (schema) {
+      schemaName = "CustomContract";
+      contractToUse = schema;
+    } else {
+      schemaName = this.defaultSchemaName;
+      contractToUse = this.contracts.get(this.defaultSchemaName) || SCHEMA_TEMPLATES.LogisticsShipment.fields;
+    }
+
+    const fieldSpecs = extractFieldSpecs(contractToUse);
+
+    // 3. Fast-Path: Check active patch catalog in Git repository
+    const activePatch = this.catalog.getPatch(source);
+    const patchVer = this.catalog.getPatchVersion(source);
+
+    if (activePatch) {
+      const patchExec = await executePatch<T>(activePatch, payload, contractToUse);
+      if (patchExec.success && patchExec.data !== undefined) {
+        return new IngestionResult<T>({
+          status: "SUCCESS",
+          driftDetected: false,
+          data: patchExec.data,
+          sourceId: source,
+          schemaName,
+          patchVersion: patchVer ?? undefined,
+        });
+      }
+    }
+
+    // 4. Baseline: Validate payload directly against contract
+    const validation = validatePayload<T>(payload, contractToUse);
+    if (validation.isValid && validation.data !== undefined) {
+      return new IngestionResult<T>({
+        status: "SUCCESS",
+        driftDetected: false,
+        data: validation.data,
+        sourceId: source,
+        schemaName,
+      });
+    }
+
+    // 5. Drift Interception: Synthesize patch using AI engine
+    const healing = await runSelfHealingAgent({
+      brokenPayload: payload,
+      fieldSpecs,
+      schemaName,
+      validationError: validation.error,
+      modelOverride: model || this.modelConfig,
+    });
+
+    if (!healing.success || !healing.patchCode) {
+      return new IngestionResult<T>({
+        status: "HEALING_FAILED",
+        driftDetected: true,
+        sourceId: source,
+        schemaName,
+        error: `AI self-healing failed: ${healing.logs}`,
+      });
+    }
+
+    // 6. Verify synthesized patch in WebAssembly QuickJS isolate sandbox (<1ms)
+    const testExec = await executePatch<T>(healing.patchCode, payload, contractToUse);
+    if (!testExec.success || testExec.data === undefined) {
+      return new IngestionResult<T>({
+        status: "HEALING_FAILED",
+        driftDetected: true,
+        sourceId: source,
+        schemaName,
+        error: `Generated patch failed sandbox verification: ${testExec.error}`,
+      });
+    }
+
+    // 7. Mandatory GitOps Review: Create isolated review branch & Conventional Commit via simple-git
+    const nextVer = (this.catalog.getPatchVersion(source) || 0) + 1;
+    const gitInfo = await createGitReviewBranch({
+      sourceId: source,
+      schemaName,
+      patchCode: healing.patchCode,
+      version: nextVer,
+      repoDir: this.repoDir,
+      pushRemote: this.autoPush,
+      validationError: validation.error,
+      customCommitMsg: healing.patchResult?.commitMessage,
+      customPrBody: healing.patchResult?.prSummary,
+    });
+
+    // 8. Payload Quarantine: Git is mandatory; unmerged patches are held in quarantine awaiting PR merge
+    return new IngestionResult<T>({
+      status: "PENDING_GIT_REVIEW",
+      driftDetected: true,
+      data: null,
+      sourceId: source,
+      schemaName,
+      patchCode: healing.patchCode,
+      patchVersion: nextVer,
+      reviewBranch: gitInfo.branchName,
+      prDetails: gitInfo,
+      error: `Schema drift intercepted. Verified patch committed to Git review branch '${gitInfo.branchName}'. Quarantined awaiting human PR review and merge.`,
+    });
+  }
+
+  /**
+   * Compatibility wrapper for `ingest`.
    */
   public async process<T = any>(
     sourceId: string,
@@ -91,119 +289,17 @@ export class AutoDataOps {
     overrideFieldSpecs?: Record<string, string>,
     overrideSchemaName?: string
   ): Promise<IngestionResult<T>> {
-    const specs = overrideFieldSpecs || this.fieldSpecs;
-    const name = overrideSchemaName || this.schemaName;
-
-    // 1. Fast-Path: Check active patch catalog
-    const activePatch = this.catalog.getPatch(sourceId);
-    const patchVer = this.catalog.getPatchVersion(sourceId);
-
-    if (activePatch) {
-      const patchExec = await executePatch<T>(activePatch, rawPayload, specs);
-      if (patchExec.success && patchExec.data !== undefined) {
-        return new IngestionResult<T>({
-          status: "SUCCESS",
-          driftDetected: false,
-          data: patchExec.data,
-          sourceId,
-          schemaName: name,
-          patchVersion: patchVer ?? undefined,
-        });
-      }
-      // If cached patch failed, schema has drifted again; proceed to re-heal
-    }
-
-    // 2. Baseline: Validate clean payload directly against contract
-    const validation = validatePayload<T>(rawPayload, specs);
-    if (validation.isValid && validation.data !== undefined) {
-      return new IngestionResult<T>({
-        status: "SUCCESS",
-        driftDetected: false,
-        data: validation.data,
-        sourceId,
-        schemaName: name,
-      });
-    }
-
-    // 3. Drift Interception: Invoke AI Self-Healing Agent
-    const healing = await runSelfHealingAgent({
-      brokenPayload: rawPayload,
-      fieldSpecs: specs,
-      schemaName: name,
-      validationError: validation.error,
+    return this.ingest<T>({
+      source: sourceId,
+      payload: rawPayload,
+      schema: overrideFieldSpecs || overrideSchemaName,
     });
-
-    if (!healing.success || !healing.patchCode) {
-      return new IngestionResult<T>({
-        status: "HEALING_FAILED",
-        driftDetected: true,
-        sourceId,
-        schemaName: name,
-        error: `AI self-healing failed: ${healing.logs}`,
-      });
-    }
-
-    // 4. Verify candidate patch in WebAssembly QuickJS isolate sandbox
-    const testExec = await executePatch<T>(healing.patchCode, rawPayload, specs);
-    if (!testExec.success || testExec.data === undefined) {
-      return new IngestionResult<T>({
-        status: "HEALING_FAILED",
-        driftDetected: true,
-        sourceId,
-        schemaName: name,
-        error: `Generated patch failed sandbox execution: ${testExec.error}`,
-      });
-    }
-
-    // 5. GitOps HITL: Provision review branch and author Conventional Commit
-    const nextVer = (this.catalog.getPatchVersion(sourceId) || 0) + 1;
-    const gitInfo = await createGitReviewBranch({
-      sourceId,
-      schemaName: name,
-      patchCode: healing.patchCode,
-      version: nextVer,
-      repoDir: this.repoDir,
-      pushRemote: this.pushRemote,
-      validationError: validation.error,
-      customCommitMsg: healing.patchResult?.commitMessage,
-      customPrBody: healing.patchResult?.prSummary,
-    });
-
-    // 6. Governance: Autonomous Hot-Patching vs. Supervised Quarantine
-    const currentMode = (process.env.AUTODATAOPS_REVIEW_MODE as ReviewMode) || this.reviewMode;
-
-    if (currentMode === "git" || currentMode === "supervised") {
-      // Quarantine mode: return PENDING_GIT_REVIEW, do not apply to active catalog
-      return new IngestionResult<T>({
-        status: "PENDING_GIT_REVIEW",
-        driftDetected: true,
-        data: null,
-        sourceId,
-        schemaName: name,
-        patchCode: healing.patchCode,
-        patchVersion: nextVer,
-        reviewBranch: gitInfo.branchName,
-        prDetails: gitInfo,
-        error: "Quarantined pending Git PR review and merge.",
-      });
-    } else {
-      // Autonomous mode: save patch immediately to active catalog and deliver clean data
-      this.catalog.savePatch(sourceId, healing.patchCode);
-      return new IngestionResult<T>({
-        status: "HEALING_INTERCEPTED",
-        driftDetected: true,
-        data: testExec.data,
-        sourceId,
-        schemaName: name,
-        patchCode: healing.patchCode,
-        patchVersion: nextVer,
-        reviewBranch: gitInfo.branchName,
-        prDetails: gitInfo,
-      });
-    }
   }
 
-  // --- STATIC UTILITY METHODS ---
+  // --- STATIC UTILITIES ---
+
+  public static defineConfig = defineConfig;
+  public static loadConfig = loadConfig;
 
   public static inferSchema(samplePayload: Record<string, any>): Record<string, string> {
     return inferSchemaFromSample(samplePayload);
@@ -236,6 +332,10 @@ export class AutoDataOps {
     return createGitReviewBranch(options);
   }
 
+  public static async listReviewBranches(repoDir?: string) {
+    return listReviewBranches(repoDir);
+  }
+
   public static exportPatch(
     patchCode: string,
     sourceId: string,
@@ -250,10 +350,14 @@ export class AutoDataOps {
 // Resilient is an alias for AutoDataOps
 export const Resilient = AutoDataOps;
 
-// Re-export all submodules
+// Default singleton instance ready for immediate import
+export const resilient = new AutoDataOps();
+
+// Re-export submodules
 export * from "./models.js";
 export * from "./contracts.js";
 export * from "./catalog.js";
 export * from "./sandbox.js";
 export * from "./git-review.js";
 export * from "./ai-engine.js";
+export * from "./config.js";

@@ -154,3 +154,32 @@ export function inferSchemaFromSample(samplePayload: Record<string, any>): Recor
 
   return specs;
 }
+
+/**
+ * Extracts a field specification mapping (field -> type) from either a Zod schema or raw specs.
+ */
+export function extractFieldSpecs(schemaOrSpecs: z.ZodTypeAny | Record<string, string>): Record<string, string> {
+  if (!(schemaOrSpecs instanceof z.ZodType)) {
+    return schemaOrSpecs;
+  }
+
+  if (schemaOrSpecs instanceof z.ZodObject) {
+    const shape = schemaOrSpecs.shape;
+    const specs: Record<string, string> = {};
+    for (const [key, fieldDef] of Object.entries(shape)) {
+      let def = (fieldDef as any)?._def;
+      while (def?.innerType || def?.schema) {
+        def = (def.innerType || def.schema)?._def;
+      }
+      const typeName = def?.typeName;
+      if (typeName === "ZodNumber") specs[key] = "float";
+      else if (typeName === "ZodBoolean") specs[key] = "bool";
+      else if (typeName === "ZodArray") specs[key] = "list";
+      else if (typeName === "ZodObject" || typeName === "ZodRecord") specs[key] = "dict";
+      else specs[key] = "str";
+    }
+    return specs;
+  }
+
+  return {};
+}
