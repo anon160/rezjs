@@ -4,7 +4,7 @@ import {
   createDynamicSchema,
   validatePayload,
   inferSchemaFromSample,
-  SCHEMA_TEMPLATES,
+  extractFieldSpecs,
 } from "../src/contracts.js";
 
 describe("Contracts & Zod Schema Validation", () => {
@@ -59,10 +59,18 @@ describe("Contracts & Zod Schema Validation", () => {
     expect(specs.items).toBe("list");
   });
 
-  it("should provide pre-defined domain schema templates", () => {
-    expect(SCHEMA_TEMPLATES.LogisticsShipment).toBeDefined();
-    expect(SCHEMA_TEMPLATES.LogisticsShipment.fields.container_id).toBe("str");
-    expect(SCHEMA_TEMPLATES.InventoryProduct).toBeDefined();
-    expect(SCHEMA_TEMPLATES.FinancialTransaction).toBeDefined();
+  it("should extract field specifications from user-defined Zod schemas", () => {
+    const userSchema = z.object({
+      order_id: z.string(),
+      amount: z.number().positive(),
+      is_paid: z.boolean(),
+      tags: z.array(z.string()),
+    });
+
+    const specs = extractFieldSpecs(userSchema);
+    expect(specs.order_id).toBe("str");
+    expect(specs.amount).toBe("float");
+    expect(specs.is_paid).toBe("bool");
+    expect(specs.tags).toBe("list");
   });
 });

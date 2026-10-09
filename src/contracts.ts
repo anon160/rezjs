@@ -1,41 +1,6 @@
 import { z } from "zod";
 
 /**
- * Standard schema templates for common domains.
- */
-export const SCHEMA_TEMPLATES: Record<string, { fields: Record<string, string>; description: string }> = {
-  LogisticsShipment: {
-    description: "Standard containerized freight tracking contract",
-    fields: {
-      container_id: "str",
-      carrier_name: "str",
-      status: "str",
-      origin_port: "str",
-      destination_port: "str",
-      weight_kg: "float",
-      eta_date: "str",
-    },
-  },
-  InventoryProduct: {
-    description: "E-Commerce and inventory product catalog contract",
-    fields: {
-      product_id: "int",
-      product_name: "str",
-      unit_price: "float",
-      quantity_available: "int",
-    },
-  },
-  FinancialTransaction: {
-    description: "Standard financial payment and invoice ledger contract",
-    fields: {
-      transaction_id: "str",
-      amount: "float",
-      currency: "str",
-    },
-  },
-};
-
-/**
  * Normalizes type strings into canonical type keys.
  */
 export function normalizeTypeName(rawType: string): string {

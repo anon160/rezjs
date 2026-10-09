@@ -11,9 +11,8 @@ import {
   MemoryPatchCatalog,
 } from "../src/index.js";
 
-describe("AutoDataOps Pluggable SDK with Mandatory Git & User Contracts", () => {
+describe("AutoDataOps / Resilient SDK with Mandatory Git & User Contracts", () => {
   it("should fail fast if running outside a Git repository", async () => {
-    // Create an empty temporary directory without git init
     const nonGitDir = fs.mkdtempSync(path.join(os.tmpdir(), "non-git-"));
     try {
       const ops = new AutoDataOps({ repoDir: nonGitDir });
@@ -48,7 +47,6 @@ describe("AutoDataOps Pluggable SDK with Mandatory Git & User Contracts", () => 
 
     const ops = new AutoDataOps({ config });
 
-    // Ingest clean payload matching user contract
     const cleanPayload = {
       order_id: "ord_8822",
       total_usd: 129.5,
@@ -66,19 +64,25 @@ describe("AutoDataOps Pluggable SDK with Mandatory Git & User Contracts", () => 
     expect(res.data?.total_usd).toBe(129.5);
   });
 
-  it("should process a clean payload matching the default contract immediately", async () => {
-    const ops = new AutoDataOps({ schema: "LogisticsShipment" });
+  it("should process a clean payload matching a registered contract immediately", async () => {
+    const ShipmentContract = z.object({
+      container_id: z.string(),
+      carrier_name: z.string(),
+      weight_kg: z.number(),
+    });
+
+    const ops = new AutoDataOps({ contract: ShipmentContract });
     const cleanPayload = {
       container_id: "MSKU1234567",
       carrier_name: "Maersk Line",
-      status: "IN_TRANSIT",
-      origin_port: "CNSHA",
-      destination_port: "USLAX",
       weight_kg: 24500.5,
-      eta_date: "2026-09-10",
     };
 
-    const res = await ops.process("clean_maersk_feed", cleanPayload);
+    const res = await ops.ingest({
+      source: "clean_maersk_feed",
+      payload: cleanPayload,
+    });
+
     expect(res).toBeInstanceOf(IngestionResult);
     expect(res.status).toBe("SUCCESS");
     expect(res.driftDetected).toBe(false);
@@ -95,28 +99,30 @@ describe("AutoDataOps Pluggable SDK with Mandatory Git & User Contracts", () => 
       return {
         container_id: String(raw.cntr),
         carrier_name: String(raw.carrier),
-        status: String(raw.state),
-        origin_port: String(raw.from_port),
-        destination_port: String(raw.to_port),
-        weight_kg: parseFloat(raw.gross_kg),
-        eta_date: String(raw.eta)
+        weight_kg: parseFloat(raw.gross_kg)
       };
     }
     `;
     catalog.savePatch("cma_feed", patchCode);
 
-    const ops = new AutoDataOps({ schema: "LogisticsShipment", catalog });
+    const ShipmentSchema = z.object({
+      container_id: z.string(),
+      carrier_name: z.string(),
+      weight_kg: z.number(),
+    });
+
+    const ops = new AutoDataOps({ contract: ShipmentSchema, catalog });
     const driftedPayload = {
       cntr: "CMA999",
       carrier: "CMA CGM",
-      state: "DELIVERED",
-      from_port: "NLRTM",
-      to_port: "SGSIN",
       gross_kg: "32000.0",
-      eta: "2026-09-15",
     };
 
-    const res = await ops.process("cma_feed", driftedPayload);
+    const res = await ops.ingest({
+      source: "cma_feed",
+      payload: driftedPayload,
+    });
+
     expect(res.status).toBe("SUCCESS");
     expect(res.driftDetected).toBe(false);
     expect(res.isSuccess()).toBe(true);
@@ -126,12 +132,20 @@ describe("AutoDataOps Pluggable SDK with Mandatory Git & User Contracts", () => 
   });
 
   it("should quarantine payload and intercept drift", async () => {
-    const ops = new AutoDataOps({ schema: "LogisticsShipment" });
+    const SimpleContract = z.object({
+      valid_key: z.string(),
+    });
+
+    const ops = new AutoDataOps({ contract: SimpleContract });
     const brokenPayload = {
       completely_unknown_key: "bad_data",
     };
 
-    const res = await ops.process("broken_feed", brokenPayload);
+    const res = await ops.ingest({
+      source: "broken_feed",
+      payload: brokenPayload,
+    });
+
     expect(res.driftDetected).toBe(true);
     expect(res.isQuarantined()).toBe(true);
     expect(res.data).toBeNull();
@@ -159,6 +173,17 @@ describe("AutoDataOps Pluggable SDK with Mandatory Git & User Contracts", () => 
 
     expect(res.status).toBe("SUCCESS");
     expect(res.data?.amount).toBe(450.75);
+  });
+
+  it("should throw if requested contract is not registered", async () => {
+    const ops = new AutoDataOps();
+    await expect(
+      ops.ingest({
+        source: "unknown_feed",
+        schema: "NonExistentContract",
+        payload: { a: 1 },
+      })
+    ).rejects.toThrow(/Contract "NonExistentContract" is not registered/i);
   });
 
   it("should support top-level resilient singleton export", async () => {

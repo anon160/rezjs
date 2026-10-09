@@ -4,9 +4,6 @@ import { openai, createOpenAI } from "@ai-sdk/openai";
 import { anthropic } from "@ai-sdk/anthropic";
 import { z } from "zod";
 import { executePatch, cleanPatchCode } from "./sandbox.js";
-import { SCHEMA_TEMPLATES } from "./contracts.js";
-
-const DEFAULT_LOGISTICS_FIELDS = SCHEMA_TEMPLATES.LogisticsShipment.fields;
 
 export const PatchResultSchema = z.object({
   patchCode: z.string().describe("Complete JavaScript function `function transform(raw) { ... }` that maps broken input to target schema."),
@@ -170,7 +167,7 @@ export async function runSelfHealingAgent(options: {
 }): Promise<SelfHealingResponse> {
   const {
     brokenPayload,
-    fieldSpecs = DEFAULT_LOGISTICS_FIELDS,
+    fieldSpecs = {},
     schemaName = "DynamicContract",
     validationError = "Schema validation failed",
     modelOverride,

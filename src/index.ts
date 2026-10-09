@@ -1,56 +1,18 @@
 /**
- * AutoDataOps — Pure TypeScript AI-Native Data Resilience & Self-Healing Library.
+ * AutoDataOps / Resilient — Pure TypeScript AI-Native Data Resilience & Schema Drift Engine.
  *
- * Pluggable SDK for real-time schema drift interception, autonomous AI self-healing,
- * WebAssembly QuickJS isolate sandboxing, and Mandatory Enterprise GitOps PR review.
- *
- * Zero Database or HTTP Server Overhead. Git is the Patch Ledger.
+ * Intercepts schema drift, sandboxes AI-synthesized patches in WebAssembly QuickJS,
+ * and enforces Git as the mandatory versioned patch ledger & review system.
  */
 
 import * as path from "node:path";
-import { z } from "zod";
-import {
-  IngestionResult,
-  IngestionStatus,
-  ReviewMode,
-  PullRequestDetails,
-} from "./models.js";
-import {
-  SCHEMA_TEMPLATES,
-  createDynamicSchema,
-  validatePayload,
-  inferSchemaFromSample,
-  extractFieldSpecs,
-} from "./contracts.js";
-import {
-  BasePatchCatalog,
-  MemoryPatchCatalog,
-  FilePatchCatalog,
-} from "./catalog.js";
-import { executePatch, cleanPatchCode } from "./sandbox.js";
-import {
-  createGitReviewBranch,
-  exportPatchFile,
-  generatePrMarkdown,
-  generateSemanticCommitMessage,
-  isGitRepository,
-  listReviewBranches,
-  GitReviewResult,
-} from "./git-review.js";
-import {
-  runSelfHealingAgent,
-  PatchResult,
-  resolveLanguageModel,
-  hasConfiguredCredentials,
-} from "./ai-engine.js";
-import {
-  ResilientConfig,
-  ModelConfig,
-  GitConfig,
-  ContractDefinition,
-  defineConfig,
-  loadConfig,
-} from "./config.js";
+import { IngestionResult } from "./models.js";
+import { validatePayload, extractFieldSpecs } from "./contracts.js";
+import { BasePatchCatalog, FilePatchCatalog } from "./catalog.js";
+import { executePatch } from "./sandbox.js";
+import { createGitReviewBranch, isGitRepository } from "./git-review.js";
+import { runSelfHealingAgent } from "./ai-engine.js";
+import { ResilientConfig, ModelConfig, ContractDefinition, defineConfig, loadConfig } from "./config.js";
 
 export interface AutoDataOpsOptions {
   config?: ResilientConfig;
@@ -65,7 +27,6 @@ export interface AutoDataOpsOptions {
   autoPush?: boolean;
   createPullRequest?: boolean;
   model?: ModelConfig | string;
-  reviewMode?: ReviewMode;
 }
 
 export interface IngestOptions<T = any> {
@@ -93,14 +54,9 @@ export class AutoDataOps {
     this.autoPush = options.autoPush ?? options.config?.git?.autoPush ?? Boolean(process.env.GITHUB_TOKEN && process.env.GITHUB_REPOSITORY);
     this.createPullRequest = options.createPullRequest ?? options.config?.git?.createPullRequest ?? true;
     this.modelConfig = options.model ?? options.config?.model;
-    this.defaultSchemaName = options.schema || "LogisticsShipment";
+    this.defaultSchemaName = options.schema || "DefaultContract";
 
-    // Initialize built-in default templates
-    for (const [name, tpl] of Object.entries(SCHEMA_TEMPLATES)) {
-      this.contracts.set(name, tpl.fields);
-    }
-
-    // Register user-defined contracts from options/config
+    // Register user-defined contracts from options and config
     if (options.config?.contracts) {
       for (const [name, contract] of Object.entries(options.config.contracts)) {
         this.contracts.set(name, contract);
@@ -118,7 +74,7 @@ export class AutoDataOps {
       this.contracts.set(this.defaultSchemaName, options.contract);
     }
 
-    // Default patch catalog is FilePatchCatalog rooted at git-tracked patches/ dir
+    // Default patch catalog is FilePatchCatalog rooted at the git-tracked patch directory
     this.catalog = options.catalog ?? new FilePatchCatalog(path.join(this.repoDir, this.patchDir));
   }
 
@@ -129,10 +85,6 @@ export class AutoDataOps {
   public get fieldSpecs(): Record<string, string> {
     const contract = this.contracts.get(this.defaultSchemaName);
     return contract ? extractFieldSpecs(contract) : {};
-  }
-
-  public get reviewMode(): ReviewMode {
-    return "git";
   }
 
   /**
@@ -179,13 +131,25 @@ export class AutoDataOps {
 
     if (typeof schema === "string") {
       schemaName = schema;
-      contractToUse = this.contracts.get(schema) || SCHEMA_TEMPLATES.LogisticsShipment.fields;
+      const found = this.contracts.get(schema);
+      if (!found) {
+        throw new Error(
+          `[AutoDataOps] Contract "${schema}" is not registered. Define it in resilient.config.ts or call registerContract().`
+        );
+      }
+      contractToUse = found;
     } else if (schema) {
       schemaName = "CustomContract";
       contractToUse = schema;
     } else {
       schemaName = this.defaultSchemaName;
-      contractToUse = this.contracts.get(this.defaultSchemaName) || SCHEMA_TEMPLATES.LogisticsShipment.fields;
+      const found = this.contracts.get(this.defaultSchemaName);
+      if (!found) {
+        throw new Error(
+          `[AutoDataOps] Default contract "${this.defaultSchemaName}" is not registered. Provide a contract in config or options.`
+        );
+      }
+      contractToUse = found;
     }
 
     const fieldSpecs = extractFieldSpecs(contractToUse);
@@ -265,7 +229,7 @@ export class AutoDataOps {
       customPrBody: healing.patchResult?.prSummary,
     });
 
-    // 8. Payload Quarantine: Git is mandatory; unmerged patches are held in quarantine awaiting PR merge
+    // 8. Payload Quarantine: Git is mandatory; unmerged patches are quarantined awaiting PR merge
     return new IngestionResult<T>({
       status: "PENDING_GIT_REVIEW",
       driftDetected: true,
@@ -280,71 +244,8 @@ export class AutoDataOps {
     });
   }
 
-  /**
-   * Compatibility wrapper for `ingest`.
-   */
-  public async process<T = any>(
-    sourceId: string,
-    rawPayload: Record<string, any>,
-    overrideFieldSpecs?: Record<string, string>,
-    overrideSchemaName?: string
-  ): Promise<IngestionResult<T>> {
-    return this.ingest<T>({
-      source: sourceId,
-      payload: rawPayload,
-      schema: overrideFieldSpecs || overrideSchemaName,
-    });
-  }
-
-  // --- STATIC UTILITIES ---
-
   public static defineConfig = defineConfig;
   public static loadConfig = loadConfig;
-
-  public static inferSchema(samplePayload: Record<string, any>): Record<string, string> {
-    return inferSchemaFromSample(samplePayload);
-  }
-
-  public static validate<T = any>(
-    payload: any,
-    schemaOrSpecs: z.ZodTypeAny | Record<string, string>
-  ) {
-    return validatePayload<T>(payload, schemaOrSpecs);
-  }
-
-  public static async transform<T = any>(
-    patchCode: string,
-    rawPayload: Record<string, any>,
-    schemaOrSpecs?: z.ZodTypeAny | Record<string, string>
-  ) {
-    return executePatch<T>(patchCode, rawPayload, schemaOrSpecs);
-  }
-
-  public static async heal(
-    brokenPayload: Record<string, any>,
-    fieldSpecs: Record<string, string>,
-    schemaName?: string
-  ) {
-    return runSelfHealingAgent({ brokenPayload, fieldSpecs, schemaName });
-  }
-
-  public static async createGitReview(options: Parameters<typeof createGitReviewBranch>[0]) {
-    return createGitReviewBranch(options);
-  }
-
-  public static async listReviewBranches(repoDir?: string) {
-    return listReviewBranches(repoDir);
-  }
-
-  public static exportPatch(
-    patchCode: string,
-    sourceId: string,
-    schemaName?: string,
-    version?: number,
-    baseDir?: string
-  ) {
-    return exportPatchFile(patchCode, sourceId, schemaName, version, baseDir);
-  }
 }
 
 // Resilient is an alias for AutoDataOps

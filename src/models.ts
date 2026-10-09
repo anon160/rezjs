@@ -1,14 +1,11 @@
 /**
- * Ingestion result models and types for AutoDataOps.
+ * Ingestion result models and types for AutoDataOps / Resilient.
  */
 
 export type IngestionStatus =
   | "SUCCESS"
-  | "HEALING_INTERCEPTED"
   | "PENDING_GIT_REVIEW"
   | "HEALING_FAILED";
-
-export type ReviewMode = "autonomous" | "git" | "supervised";
 
 export interface PullRequestDetails {
   branchName?: string;
@@ -62,15 +59,11 @@ export class IngestionResult<T = any> {
    * Returns true if clean, valid data is ready to be consumed.
    */
   public isSuccess(): boolean {
-    return (
-      (this.status === "SUCCESS" || this.status === "HEALING_INTERCEPTED") &&
-      this.data !== null &&
-      this.data !== undefined
-    );
+    return this.status === "SUCCESS" && this.data !== null && this.data !== undefined;
   }
 
   /**
-   * Returns true if record requires human approval or DLQ routing.
+   * Returns true if record was quarantined awaiting human Git PR review or if healing failed.
    */
   public isQuarantined(): boolean {
     return this.status === "PENDING_GIT_REVIEW" || this.status === "HEALING_FAILED";
