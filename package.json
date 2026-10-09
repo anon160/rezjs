@@ -28,6 +28,7 @@
     "@octokit/rest": "^21.1.0",
     "ai": "^4.1.0",
     "quickjs-emscripten": "^0.31.0",
+    "simple-git": "^4.0.2",
     "zod": "^3.24.0"
   },
   "devDependencies": {

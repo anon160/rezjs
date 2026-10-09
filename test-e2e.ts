@@ -10,8 +10,7 @@
  * 6. Git review branch inspection
  */
 
-import { execSync } from "node:child_process";
-import { AutoDataOps } from "./src/index.js";
+import { AutoDataOps, listReviewBranches } from "./src/index.js";
 
 function printHeader(title: string) {
   console.log(`\n${"=".repeat(70)}`);
@@ -116,11 +115,7 @@ async function main() {
   // 6. Inspect Git Review Branches in Local Repository
   console.log("\n[Step 6] Inspecting Git Review Branches in Local Repository...");
   try {
-    const branches = execSync("git branch --list 'autodataops-patch/*'", { stdio: "pipe" })
-      .toString()
-      .trim()
-      .split("\n")
-      .filter(Boolean);
+    const branches = await listReviewBranches();
     console.log(`  ✅ Active Git Review Branches found (${branches.length})`);
     for (const b of branches.slice(-3)) {
       console.log(`     - ${b.trim()}`);

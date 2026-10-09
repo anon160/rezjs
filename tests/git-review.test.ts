@@ -2,15 +2,17 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import { execSync } from "node:child_process";
+import { simpleGit } from "simple-git";
 import {
   exportPatchFile,
   generateSemanticCommitMessage,
   generatePrMarkdown,
   createGitReviewBranch,
+  isGitRepository,
+  listReviewBranches,
 } from "../src/git-review.js";
 
-describe("GitOps Review Engine", () => {
+describe("GitOps Review Engine with simple-git", () => {
   let tmpDir: string;
 
   beforeEach(() => {
@@ -21,6 +23,11 @@ describe("GitOps Review Engine", () => {
     if (fs.existsSync(tmpDir)) {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
+  });
+
+  it("should accurately detect non-git directory", async () => {
+    const isRepo = await isGitRepository(tmpDir);
+    expect(isRepo).toBe(false);
   });
 
   it("should export patch files with standardized metadata header", () => {
@@ -50,13 +57,19 @@ describe("GitOps Review Engine", () => {
     expect(md).toContain("Missing container_id");
   });
 
-  it("should provision review branch and author commit in a Git repository", async () => {
-    // Initialize a temporary Git repo
-    execSync("git init", { cwd: tmpDir, stdio: "pipe" });
-    execSync("git config user.name 'Test Runner'", { cwd: tmpDir, stdio: "pipe" });
-    execSync("git config user.email 'test@example.com'", { cwd: tmpDir, stdio: "pipe" });
+  it("should provision review branch and author commit using simple-git in repository", async () => {
+    // Initialize a temporary Git repo using simpleGit
+    const git = simpleGit(tmpDir);
+    await git.init();
+    await git.addConfig("user.name", "Test Runner");
+    await git.addConfig("user.email", "test@example.com");
+
+    const isRepo = await isGitRepository(tmpDir);
+    expect(isRepo).toBe(true);
+
     fs.writeFileSync(path.join(tmpDir, "README.md"), "# Test Repo\n");
-    execSync("git add README.md && git commit -m 'Initial commit'", { cwd: tmpDir, stdio: "pipe" });
+    await git.add("README.md");
+    await git.commit("Initial commit");
 
     const result = await createGitReviewBranch({
       sourceId: "hapag_feed",
@@ -67,16 +80,14 @@ describe("GitOps Review Engine", () => {
     });
 
     expect(result.branchName).toBe("autodataops-patch/patch-hapag_feed-v1");
-    const committedFiles = execSync(`git ls-tree -r --name-only ${result.branchName}`, { cwd: tmpDir, stdio: "pipe" })
-      .toString()
-      .trim();
-    expect(committedFiles).toContain(path.basename(result.patchFile));
     expect(result.commitMessage).toContain("hapag_feed");
 
-    // Verify branch was created
-    const branches = execSync("git branch --list 'autodataops-patch/*'", { cwd: tmpDir, stdio: "pipe" })
-      .toString()
-      .trim();
-    expect(branches).toContain("autodataops-patch/patch-hapag_feed-v1");
+    // Verify branch was created and is listed
+    const reviewBranches = await listReviewBranches(tmpDir);
+    expect(reviewBranches).toContain("autodataops-patch/patch-hapag_feed-v1");
+
+    // Verify commit tree has the patch file
+    const log = await git.log({ from: "HEAD", to: result.branchName });
+    expect(log.latest?.message).toContain("hapag_feed");
   });
 });

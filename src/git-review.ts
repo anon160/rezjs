@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { execSync } from "node:child_process";
+import { simpleGit, SimpleGit } from "simple-git";
 import { Octokit } from "@octokit/rest";
 
 export interface GitReviewResult {
@@ -53,13 +53,25 @@ export function exportPatchFile(
   return filepath;
 }
 
-export function isGitRepository(repoDir?: string): boolean {
+export async function isGitRepository(repoDir?: string): Promise<boolean> {
   const cwd = repoDir ? path.resolve(repoDir) : process.cwd();
   try {
-    const res = execSync("git rev-parse --is-inside-work-tree", { cwd, stdio: "pipe" });
-    return res.toString().trim() === "true";
+    const git = simpleGit(cwd);
+    return await git.checkIsRepo();
   } catch {
     return false;
+  }
+}
+
+export async function listReviewBranches(repoDir?: string): Promise<string[]> {
+  const cwd = repoDir ? path.resolve(repoDir) : process.cwd();
+  if (!(await isGitRepository(cwd))) return [];
+  try {
+    const git = simpleGit(cwd);
+    const branchSummary = await git.branchLocal();
+    return branchSummary.all.filter((b) => b.startsWith("autodataops-patch/"));
+  } catch {
+    return [];
   }
 }
 
@@ -144,36 +156,32 @@ export async function createGitReviewBranch(options: {
 
   let remotePrUrl: string | null = null;
 
-  // 2. Provision local Git branch and commit if inside a Git repository
-  if (isGitRepository(cwd)) {
+  // 2. Provision local Git branch and commit using simple-git if inside a Git repository
+  if (await isGitRepository(cwd)) {
     try {
+      const git: SimpleGit = simpleGit(cwd);
+
       // Check current branch
-      const originalBranch = execSync("git rev-parse --abbrev-ref HEAD", { cwd, stdio: "pipe" })
-        .toString()
-        .trim();
+      const branchSummary = await git.branchLocal();
+      const originalBranch = branchSummary.current;
 
-      // Check if review branch already exists
-      const branchExists = execSync(`git branch --list "${branchName}"`, { cwd, stdio: "pipe" })
-        .toString()
-        .trim().length > 0;
-
-      if (branchExists) {
-        execSync(`git checkout "${branchName}"`, { cwd, stdio: "pipe" });
+      // Switch to existing review branch or create new local branch
+      if (branchSummary.all.includes(branchName)) {
+        await git.checkout(branchName);
       } else {
-        execSync(`git checkout -b "${branchName}"`, { cwd, stdio: "pipe" });
+        await git.checkoutLocalBranch(branchName);
       }
 
       // Stage patch file
       const relPatchPath = path.relative(cwd, patchFilePath);
-      execSync(`git add "${relPatchPath}"`, { cwd, stdio: "pipe" });
+      await git.add(relPatchPath);
 
-      // Commit
-      const escapedMsg = commitMessage.replace(/"/g, '\\"');
-      execSync(`git commit -m "${escapedMsg}"`, { cwd, stdio: "pipe" });
+      // Commit with semantic message
+      await git.commit(commitMessage);
 
       // Switch back to original branch so current working tree stays undisturbed
       if (originalBranch && originalBranch !== branchName) {
-        execSync(`git checkout "${originalBranch}"`, { cwd, stdio: "pipe" });
+        await git.checkout(originalBranch);
       }
 
       // Optional remote push & PR creation via Octokit
@@ -182,7 +190,7 @@ export async function createGitReviewBranch(options: {
         const repoSlug = process.env.GITHUB_REPOSITORY; // "owner/repo"
 
         if (token && repoSlug && repoSlug.includes("/")) {
-          execSync(`git push origin "${branchName}"`, { cwd, stdio: "pipe" });
+          await git.push("origin", branchName);
 
           const [owner, repo] = repoSlug.split("/");
           const octokit = new Octokit({ auth: token });
