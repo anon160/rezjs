@@ -1,4 +1,4 @@
-import { generateObject, generateText, tool, LanguageModel } from "ai";
+import { generateObject, createProviderRegistry, LanguageModel } from "ai";
 import { google } from "@ai-sdk/google";
 import { openai, createOpenAI } from "@ai-sdk/openai";
 import { anthropic } from "@ai-sdk/anthropic";
@@ -16,58 +16,104 @@ export const PatchResultSchema = z.object({
 
 export type PatchResult = z.infer<typeof PatchResultSchema>;
 
+/**
+ * OpenCode-style unified multi-provider registry.
+ * Connects first-party providers and OpenAI-compatible gateways under a single registry.
+ */
+export function createUnifiedModelRegistry() {
+  return createProviderRegistry({
+    google,
+    openai,
+    anthropic,
+    // Universal OpenAI-compatible endpoints:
+    openrouter: createOpenAI({
+      baseURL: "https://openrouter.ai/api/v1",
+      apiKey: process.env.OPENROUTER_API_KEY || "",
+    }),
+    deepseek: createOpenAI({
+      baseURL: "https://api.deepseek.com/v1",
+      apiKey: process.env.DEEPSEEK_API_KEY || "",
+    }),
+    groq: createOpenAI({
+      baseURL: "https://api.groq.com/openai/v1",
+      apiKey: process.env.GROQ_API_KEY || "",
+    }),
+    ollama: createOpenAI({
+      baseURL: process.env.OLLAMA_BASE_URL || "http://localhost:11434/v1",
+      apiKey: "ollama",
+    }),
+  });
+}
+
 export function hasConfiguredCredentials(): boolean {
   return Boolean(
     process.env.GEMINI_API_KEY ||
     process.env.GOOGLE_GENERATIVE_AI_API_KEY ||
     process.env.GOOGLE_API_KEY ||
+    process.env.OPENROUTER_API_KEY ||
     process.env.OPENAI_API_KEY ||
     process.env.ANTHROPIC_API_KEY ||
+    process.env.DEEPSEEK_API_KEY ||
+    process.env.GROQ_API_KEY ||
     process.env.OLLAMA_BASE_URL
   );
 }
 
-export function resolveLanguageModel(): LanguageModel {
-  const custom = process.env.AUTODATAOPS_MODEL || process.env.RESILIENT_LLM_MODEL;
+/**
+ * Resolves any model string dynamically through the unified registry.
+ * Accepts formats:
+ * - 'google:gemini-2.5-flash'
+ * - 'anthropic:claude-3-5-sonnet'
+ * - 'openai:gpt-4o'
+ * - 'openrouter:meta-llama/llama-3.3-70b-instruct'
+ * - 'deepseek:deepseek-chat'
+ * - 'groq:llama-3.3-70b-versatile'
+ * - 'ollama:qwen2.5-coder'
+ */
+export function resolveLanguageModel(modelOverride?: string): LanguageModel {
+  const registry = createUnifiedModelRegistry();
+  const requested = modelOverride || process.env.AUTODATAOPS_MODEL || process.env.RESILIENT_LLM_MODEL;
 
-  if (custom) {
-    if (custom.startsWith("google:") || custom.startsWith("gemini")) {
-      const modelName = custom.replace(/^google:/, "");
-      return google(modelName);
+  if (requested) {
+    if (requested.includes(":")) {
+      return registry.languageModel(requested as any);
     }
-    if (custom.startsWith("anthropic:") || custom.startsWith("claude")) {
-      const modelName = custom.replace(/^anthropic:/, "");
-      return anthropic(modelName);
+    // Shorthand prefixes
+    if (requested.startsWith("gemini")) return registry.languageModel(`google:${requested}` as any);
+    if (requested.startsWith("claude")) return registry.languageModel(`anthropic:${requested}` as any);
+    if (requested.startsWith("gpt") || requested.startsWith("o1") || requested.startsWith("o3")) {
+      return registry.languageModel(`openai:${requested}` as any);
     }
-    if (custom.startsWith("openai:") || custom.startsWith("gpt")) {
-      const modelName = custom.replace(/^openai:/, "");
-      return openai(modelName);
+    if (requested.startsWith("qwen") || requested.startsWith("llama")) {
+      return registry.languageModel(`ollama:${requested}` as any);
     }
-    if (custom.startsWith("ollama:")) {
-      const modelName = custom.replace(/^ollama:/, "");
-      const baseURL = process.env.OLLAMA_BASE_URL || "http://localhost:11434/v1";
-      const customOpenAI = createOpenAI({ baseURL, apiKey: "ollama" });
-      return customOpenAI(modelName);
-    }
+    return registry.languageModel(`google:${requested}` as any);
   }
 
-  // Fallback to active credentials
+  // Auto-detect based on available active API keys
   if (process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GOOGLE_API_KEY) {
-    return google("gemini-2.5-flash");
+    return registry.languageModel("google:gemini-2.5-flash");
+  }
+  if (process.env.OPENROUTER_API_KEY) {
+    return registry.languageModel("openrouter:google/gemini-2.5-flash");
   }
   if (process.env.OPENAI_API_KEY) {
-    return openai("gpt-4o");
+    return registry.languageModel("openai:gpt-4o");
   }
   if (process.env.ANTHROPIC_API_KEY) {
-    return anthropic("claude-3-5-sonnet-latest");
+    return registry.languageModel("anthropic:claude-3-5-sonnet-latest");
+  }
+  if (process.env.DEEPSEEK_API_KEY) {
+    return registry.languageModel("deepseek:deepseek-chat");
+  }
+  if (process.env.GROQ_API_KEY) {
+    return registry.languageModel("groq:llama-3.3-70b-versatile");
   }
   if (process.env.OLLAMA_BASE_URL) {
-    const customOpenAI = createOpenAI({ baseURL: process.env.OLLAMA_BASE_URL, apiKey: "ollama" });
-    return customOpenAI("qwen2.5-coder");
+    return registry.languageModel("ollama:qwen2.5-coder");
   }
 
-  // Default to Google
-  return google("gemini-2.5-flash");
+  return registry.languageModel("google:gemini-2.5-flash");
 }
 
 function buildSystemPrompt(schemaName: string, fieldSpecs: Record<string, string>): string {
@@ -103,24 +149,26 @@ export async function runSelfHealingAgent(options: {
   fieldSpecs?: Record<string, string>;
   schemaName?: string;
   validationError?: string;
+  modelOverride?: string;
 }): Promise<SelfHealingResponse> {
   const {
     brokenPayload,
     fieldSpecs = DEFAULT_LOGISTICS_FIELDS,
     schemaName = "DynamicContract",
     validationError = "Schema validation failed",
+    modelOverride,
   } = options;
 
   if (!hasConfiguredCredentials()) {
     return {
       success: false,
       patchCode: "",
-      logs: "No LLM API key configured (set GEMINI_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY, or OLLAMA_BASE_URL). AI self-healing disabled.",
+      logs: "No LLM API key configured (set GEMINI_API_KEY, OPENROUTER_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY, DEEPSEEK_API_KEY, GROQ_API_KEY, or OLLAMA_BASE_URL). AI self-healing disabled.",
     };
   }
 
   try {
-    const model = resolveLanguageModel();
+    const model = resolveLanguageModel(modelOverride);
     const systemPrompt = buildSystemPrompt(schemaName, fieldSpecs);
 
     const userPrompt = `BROKEN RAW PAYLOAD:
