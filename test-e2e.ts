@@ -1,5 +1,5 @@
 /**
- * AutoDataOps / Resilient — Pure TypeScript Library End-to-End Pipeline Verification Script.
+ * Rez (rezjs) — Pure TypeScript Library End-to-End Pipeline Verification Script.
  *
  * Verifies:
  * 1. Instantiation with user-defined Zod contract schemas
@@ -11,7 +11,7 @@
  */
 
 import { z } from "zod";
-import { AutoDataOps, listReviewBranches } from "./src/index.js";
+import { Rez, listReviewBranches } from "./src/index.js";
 
 function printHeader(title: string) {
   console.log(`\n${"=".repeat(70)}`);
@@ -20,7 +20,7 @@ function printHeader(title: string) {
 }
 
 async function main() {
-  printHeader("AutoDataOps TypeScript Pluggable Library E2E Verification");
+  printHeader("Rez (rezjs) TypeScript Library E2E Verification");
 
   // User-defined Zod contract
   const LogisticsShipment = z.object({
@@ -33,9 +33,9 @@ async function main() {
     eta_date: z.string(),
   });
 
-  // 1. Initialize AutoDataOps instance with user-defined contract
-  console.log("\n[Step 1] Initializing AutoDataOps TypeScript SDK instance...");
-  const ops = new AutoDataOps({
+  // 1. Initialize Rez instance with user-defined contract
+  console.log("\n[Step 1] Initializing Rez (rezjs) SDK instance...");
+  const ops = new Rez({
     schema: "LogisticsShipment",
     contract: LogisticsShipment,
   });
@@ -117,7 +117,7 @@ async function main() {
     amount: z.number().positive(),
     currency: z.string(),
   });
-  const customOps = new AutoDataOps({ contract: FinancialTransaction, schema: "FinancialTransaction" });
+  const customOps = new Rez({ contract: FinancialTransaction, schema: "FinancialTransaction" });
   const customRes = await customOps.ingest({
     source: "stripe_feed",
     payload: {

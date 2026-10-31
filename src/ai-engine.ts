@@ -86,7 +86,11 @@ export function resolveLanguageModel(
   }
 
   const registry = createUnifiedModelRegistry();
-  const requested = modelOverride || process.env.AUTODATAOPS_MODEL || process.env.RESILIENT_LLM_MODEL;
+  const requested =
+    modelOverride ||
+    process.env.REZ_MODEL ||
+    process.env.AUTODATAOPS_MODEL ||
+    process.env.RESILIENT_LLM_MODEL;
 
   if (requested) {
     if (requested.includes(":")) {

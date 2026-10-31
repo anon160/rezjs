@@ -4,7 +4,7 @@ import { z } from "zod";
 export default defineConfig({
   // 1. Model & Provider Configuration
   model: {
-    model: process.env.AUTODATAOPS_MODEL || "google:gemini-2.5-flash",
+    model: process.env.REZ_MODEL || process.env.AUTODATAOPS_MODEL || "google:gemini-2.5-flash",
     fallback: "openrouter:meta-llama/llama-3.3-70b-instruct",
   },
 

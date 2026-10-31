@@ -1,189 +1,236 @@
-# AutoDataOps (Project Resilient)
+# Rez (`rezjs`)
 
-> **Pure TypeScript AI-Native Data Resilience Library with WebAssembly Sandboxing & GitOps HITL**
+[![CI](https://github.com/your-org/rezjs/actions/workflows/ci.yml/badge.svg)](https://github.com/your-org/rezjs/actions/workflows/ci.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![npm version](https://img.shields.io/npm/v/rezjs.svg)](https://www.npmjs.com/package/rezjs)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen.svg)](https://nodejs.org/)
 
-AutoDataOps is an embeddable TypeScript library designed to eliminate API and webhook maintenance. When external partner feeds or webhooks drift (e.g. renamed fields, nested objects, type changes), AutoDataOps intercepts the break, uses a multi-provider **AI Agent (Vercel AI SDK)** to synthesize a repair patch, verifies it inside an isolated **WebAssembly QuickJS Sandbox**, authors an informative **Conventional Commit**, and opens a **Git Pull Request**.
+> **The automated immune system for third-party webhooks and API feeds.**  
+> When external partner schemas drift or break, Rez intercepts the failure, uses multi-provider AI to synthesize a TypeScript repair patch, proves it inside an isolated WebAssembly QuickJS sandbox (<1ms), and opens a Git Pull Request for human review.
 
-**Git is the Patch Storage**: No custom databases, no standalone servers, no internal dashboards. Patch files are checked directly into your Git repository (`patches/`), reviewed via GitHub PRs, and deployed via your existing CI/CD.
+**Git is the single source of truth.** No bespoke dashboards, no separate database, no un-sandboxed `eval()` in production. Patches are saved as versioned TypeScript files in `patches/` and reviewed via standard GitHub Pull Requests.
 
 ---
 
-## 🏛️ Architecture Overview
+## 🏛️ How It Works
 
-```text
-       [ Host Application: Next.js / Express / Fastify / Lambda / Workers ]
-                                  │
-                                  ▼
-                     [ ops = new AutoDataOps(...) ]
-                                  │
-                                  ▼
-                   [ 1. Catalog Fast-Path Check ]
-              (Applies existing active patch in <1ms)
-                                  │
-                       (No patch / New source)
-                                  │
-                                  ▼
-                   [ 2. Zod Contract Validator ]
-                 (Validates against target schema)
-                 │                               │
-           (Valid Clean)                (Schema Drift Detected)
-                 │                               │
-                 ▼                               ▼
-        [ Clean Result ]               [ 3. Multi-Provider AI Agent ]
-     (status="SUCCESS")            (Synthesizes & compiles patch)
-                                                 │
-                                                 ▼
-                                     [ 4. WebAssembly Sandbox ]
-                                  (QuickJS WASM isolate verification)
-                                                 │
-                                                 ▼
-                                     [ 5. Git Review Engine ]
-                                   (Authors Conventional Commit,
-                                    creates `autodataops-patch/...`,
-                                    exports `.ts` patch, opens PR)
-                                                 │
-                        ┌────────────────────────┴────────────────────────┐
-                        ▼                                                 ▼
-          [ Mode: `autonomous` (Default) ]                  [ Mode: `git` / `supervised` ]
-        - Deploys patch to local catalog                  - Quarantines payload (data=null)
-        - Delivers clean data immediately                 - Returns status `PENDING_GIT_REVIEW`
-        - Creates Git PR for audit trail                  - Caller routes to SQS/Kafka DLQ
+```mermaid
+flowchart TD
+    A["Incoming Vendor Payload (Webhook / API Feed)"] --> B{"Matches Zod Contract?"}
+    B -- "Yes (Clean)" --> C["Deliver Clean Data (200 OK)"]
+    B -- "No (Schema Drift)" --> D{"Active Patch in 'patches/'?"}
+    D -- "Approved Patch Exists" --> E["Execute Patch in QuickJS WASM (<1ms)"]
+    E --> F["Deliver Normalized Data"]
+    D -- "New Drift / Unseen" --> G["AI Synthesizes TypeScript Transform"]
+    G --> H["Verify in WebAssembly QuickJS Sandbox"]
+    H -- "Fails Sandbox" --> I["Quarantine to DLQ (HEALING_FAILED)"]
+    H -- "Passes Sandbox" --> J["simple-git: Create Branch & Conventional Commit"]
+    J --> K["Octokit: Open GitHub Pull Request"]
+    K --> L["Quarantine Payload (PENDING_GIT_REVIEW)"]
 ```
+
+1. **Fast-Path**: If a pre-approved patch exists in `patches/`, it runs in **< 1ms** inside a WebAssembly QuickJS isolate.
+2. **Contract Enforcement**: Incoming JSON is validated against your user-defined Zod schema contracts.
+3. **AI Drift Interception**: When a vendor renames a field, changes date formats, or alters types, the multi-provider AI engine generates a `transform(raw)` mapping.
+4. **WASM Sandboxing**: The generated patch is executed in an in-process WebAssembly isolate (QuickJS). It has **zero** filesystem access, **zero** network access, strict 8MB memory quotas, and CPU deadline timers.
+5. **GitOps Review**: The patch is saved to `patches/` and committed to an isolated review branch (`rez-patch/...`) via `simple-git`. A GitHub Pull Request is automatically opened.
+6. **Payload Quarantine**: The drifted payload is safely quarantined (`status: "PENDING_GIT_REVIEW"`) with PR metadata attached for your Dead Letter Queue (DLQ). Once an engineer clicks **Merge** on GitHub, the patch becomes active for all future payloads.
 
 ---
 
 ## 🚀 Key Features
 
-- **🔌 Embeddable Everywhere**: Pure TypeScript library. Drops into Next.js API routes, Express/Fastify backends, AWS Lambda, or Cloudflare Workers with sub-millisecond cold starts.
-- **🛡️ Zod Contract Validation**: Validates incoming payloads against strict target schemas (e.g. `LogisticsShipment` or dynamic ad-hoc Zod specs).
-- **🔒 True WebAssembly Sandboxing**: Executes candidate transformation patches inside a pure **QuickJS WebAssembly (WASM)** isolate. Zero filesystem access, zero network access, memory limits, and deadline execution timers.
-- **🧠 Multi-Provider AI (Vercel AI SDK)**: Supports Google Gemini, OpenAI, Anthropic Claude, and local models via Ollama.
-- **🐙 GitOps as Patch Storage**:
-  - **No bespoke approval dashboards**: Review diffs natively in GitHub PRs or GitLab MRs.
-  - **Conventional Commits**: Authors informative commits (`fix(pipeline): adapt vendor_feed to schema drift`).
-  - **Automated Branches**: Provisions isolated review branches (`autodataops-patch/patch-{source}-v{version}`).
-- **⚖️ Dual Review Governance**:
-  - `reviewMode="autonomous"`: Zero-downtime hot-patching with Git PRs generated for auditability.
-  - `reviewMode="git"` (or `"supervised"`): Strict enterprise change control where drifted records are marked `PENDING_GIT_REVIEW` until the Git PR is merged.
-- **🗂️ Pluggable Patch Catalogs**:
-  - `MemoryPatchCatalog`: Fast in-memory catalog (ideal for serverless / ephemeral / test pipelines).
-  - `FilePatchCatalog`: GitOps-native filesystem catalog in `patches/` directory.
+* **🔌 Embeddable TypeScript Library**: Zero standalone servers, zero microservices. Drops directly into Express, Fastify, Next.js Route Handlers, Hono, AWS Lambda, or Kafka/SQS worker consumers.
+* **🔒 WebAssembly QuickJS Sandboxing**: Executes AI-generated code securely in-process with mathematical runtime isolation. No Docker daemon required.
+* **🐙 Mandatory GitOps Review**: Every fix is an audited, signed Conventional Commit (`fix(pipeline): adapt vendor_feed to schema drift`). Git is the patch ledger.
+* **🧠 Multi-Provider AI Registry**: Connect to Google, OpenAI, Anthropic, OpenRouter, DeepSeek, Groq, or local Ollama instances through a single unified API.
+* **⚙️ Type-Safe `defineConfig`**: Modern configuration discovery (`rez.config.ts`) with full TypeScript autocomplete.
 
 ---
 
-## 📦 Installation & Setup
+## 📦 Installation
 
 ```bash
-git clone https://github.com/your-org/autodataops.git
-cd autodataops
-npm install
-npm run build
+npm install rezjs zod
 ```
 
-### Environment Variables
-
-| Variable | Default | Description |
-|---|---|---|
-| `AUTODATAOPS_REVIEW_MODE` | `autonomous` | Review policy: `autonomous` (auto-apply + PR audit) or `git`/`supervised` (quarantine until PR merged). |
-| `AUTODATAOPS_MODEL` | *(None)* | Model override (e.g. `google:gemini-2.5-flash`, `anthropic:claude-3-5-sonnet`, `openai:gpt-4o`, `ollama:qwen2.5-coder`). |
-| `GEMINI_API_KEY` | *(None)* | Google Gemini API key for self-healing. |
-| `OPENAI_API_KEY` | *(None)* | OpenAI API key (optional). |
-| `ANTHROPIC_API_KEY` | *(None)* | Anthropic API key (optional). |
-| `GITHUB_TOKEN` | *(None)* | Optional GitHub Personal Access Token to push branches and open remote PRs. |
-| `GITHUB_REPOSITORY` | *(None)* | Target GitHub repo (`owner/repo`) for automated PR creation. |
+Requirements: Node.js `>= 20.0.0` and a local Git repository (`git init`).
 
 ---
 
-## 💡 Quick Start & Usage Examples
+## ⚡ Quick Start
 
-### 1. Basic Ingestion & Drift Self-Healing
+### 1. Create `rez.config.ts`
+
+Add a configuration file in your project root:
 
 ```typescript
-import { AutoDataOps } from "autodataops";
+import { defineConfig } from "rezjs";
+import { z } from "zod";
 
-// Initialize processor with target schema contract
-const ops = new AutoDataOps({ schema: "LogisticsShipment", reviewMode: "autonomous" });
+export default defineConfig({
+  // 1. Model & Provider Configuration
+  model: {
+    provider: "google", // "google" | "openai" | "anthropic" | "openrouter" | "deepseek" | "groq" | "ollama"
+  },
 
-// Ingest raw payload (clean or drifted)
-const rawRecord = {
-  cntr: "CMA991122",
-  carrier: "CMA CGM",
-  state: "DELIVERED",
-  from_port: "NLRTM",
-  to_port: "SGSIN",
-  gross_kg: "34500.0",
-  eta: "2026-09-15"
-};
+  // 2. Mandatory Git Ledger Configuration
+  git: {
+    baseBranch: "main",
+    patchDir: "patches",
+    autoPush: false,               // Set true (or set GITHUB_TOKEN) to push branches automatically
+    createPullRequest: true,        // Opens PR via Octokit when GITHUB_TOKEN is present
+  },
 
-const result = await ops.process("cma_stream", rawRecord);
+  // 3. User-Defined Schema Contracts
+  contracts: {
+    LogisticsShipment: z.object({
+      container_id: z.string(),
+      carrier_name: z.string(),
+      status: z.enum(["IN_TRANSIT", "DELIVERED", "DELAYED", "EXCEPTION"]),
+      origin_port: z.string(),
+      destination_port: z.string(),
+      weight_kg: z.number().positive(),
+      eta_date: z.string(),
+    }),
+
+    FinancialTransaction: z.object({
+      transaction_id: z.string(),
+      amount: z.number().positive(),
+      currency: z.string(),
+    }),
+  },
+});
+```
+
+### 2. Ingest Payloads in Webhooks or API Handlers
+
+```typescript
+import { rez } from "rezjs";
+
+// Inside any webhook route (Express, Fastify, Next.js, Lambda, etc.)
+app.post("/webhooks/carrier-feed", async (req, res) => {
+  const result = await rez.ingest({
+    source: "vendor_maersk",
+    schema: "LogisticsShipment", // Resolves contract from rez.config.ts
+    payload: req.body,
+  });
+
+  // If schema drift was intercepted:
+  if (result.isQuarantined()) {
+    console.warn(`[DRIFT] Quarantined! Created Git branch: ${result.reviewBranch}`);
+    if (result.prUrl) console.warn(`[PR] GitHub Pull Request: ${result.prUrl}`);
+
+    // Route broken payload to SQS / Kafka Dead Letter Queue (DLQ) with PR link
+    await dlq.push(req.body, {
+      reviewBranch: result.reviewBranch,
+      prUrl: result.prUrl,
+      patchFile: result.patchFile,
+    });
+
+    return res.status(202).json({
+      status: "quarantined",
+      reviewBranch: result.reviewBranch,
+      prUrl: result.prUrl,
+    });
+  }
+
+  // Guaranteed valid, normalized data matching your contract:
+  await db.shipments.insert(result.data);
+  return res.status(200).json({ status: "success", data: result.data });
+});
+```
+
+---
+
+## 💡 Programmatic Usage & Custom Instances
+
+You can also instantiate `Rez` programmatically with custom Zod contracts:
+
+```typescript
+import { Rez } from "rezjs";
+import { z } from "zod";
+
+const OrderSchema = z.object({
+  order_id: z.string(),
+  total_usd: z.number().positive(),
+  status: z.enum(["PENDING", "COMPLETED"]),
+});
+
+const instance = new Rez({
+  contract: OrderSchema,
+  model: { provider: "deepseek" }, // Override provider per instance
+});
+
+const result = await instance.ingest({
+  source: "shopify_webhook",
+  payload: rawPayload,
+});
 
 if (result.isSuccess()) {
-  console.log("Delivered clean data:", result.data);
-  if (result.driftDetected) {
-    console.log(`AI healed schema drift! Created Git branch: ${result.reviewBranch}`);
-  }
-} else if (result.isQuarantined()) {
-  // In 'git' mode, route to Dead Letter Queue (SQS / Kafka DLQ)
-  console.log(`Quarantined pending Git review: ${result.reviewBranch}`);
-}
-```
-
-### 2. Custom Ad-Hoc Schemas
-
-You can provide arbitrary target field specifications without pre-defining models:
-
-```typescript
-const customSpecs = {
-  product_id: "int",
-  product_name: "str",
-  unit_price: "float",
-  in_stock: "bool"
-};
-
-const ops = new AutoDataOps({ fieldSpecs: customSpecs, schema: "InventoryItem" });
-const result = await ops.process("inventory_feed", rawData);
-```
-
-### 3. Using in a Webhook Handler (Next.js / Express / Cloudflare Workers)
-
-```typescript
-import { AutoDataOps } from "autodataops";
-
-const ops = new AutoDataOps({ schema: "LogisticsShipment", reviewMode: "git" });
-
-export async function POST(req: Request) {
-  const rawPayload = await req.json();
-  const sourceId = req.headers.get("x-vendor-id") || "vendor_stream";
-
-  const result = await ops.process(sourceId, rawPayload);
-
-  if (result.isSuccess()) {
-    await db.shipments.insert(result.data);
-    return Response.json({ status: "processed" });
-  } else if (result.isQuarantined()) {
-    await sqs.sendToDLQ(rawPayload);
-    return Response.json({ status: "quarantined", reviewBranch: result.reviewBranch });
-  }
-
-  return Response.json({ status: "error", error: result.error }, { status: 500 });
+  console.log("Processed order:", result.data.order_id);
 }
 ```
 
 ---
 
-## 🧪 Testing & Verification
+## 🔒 Security: WebAssembly Sandbox
 
-Run the turnkey end-to-end library test:
+Most "self-healing" AI libraries run unvetted code using `eval()` or child processes. In production, this introduces catastrophic Remote Code Execution (RCE) vulnerabilities.
+
+Rez compiles the **QuickJS** JavaScript engine into **WebAssembly** (`quickjs-emscripten`):
+
+| Property | WebAssembly QuickJS Isolate | Node.js `eval()` / `vm` | Docker Containers |
+| :--- | :--- | :--- | :--- |
+| **Filesystem Access** | ❌ Blocked (0 access) | ⚠️ Unsafe (escapable) | ⚠️ Shared host mounts |
+| **Network Access** | ❌ Blocked (0 access) | ⚠️ Full access | ⚠️ Needs bridge network |
+| **Process Globals (`process.env`)** | ❌ None | ⚠️ Full access | ⚠️ Leaks container env |
+| **Execution Overhead** | **~0.2 ms** | < 0.1 ms | > 1,500 ms (cold start) |
+| **Production-Safe** | ✅ Yes | ❌ Security hazard | ⚠️ Heavy infrastructure |
+
+---
+
+## 🌐 Supported Providers
+
+Rez connects to first-party providers and OpenAI-compatible gateways through a single unified registry:
+
+* **Google** (`google`)
+* **OpenAI** (`openai`)
+* **Anthropic** (`anthropic`)
+* **OpenRouter** (`openrouter`)
+* **DeepSeek** (`deepseek`)
+* **Groq** (`groq`)
+* **Ollama** (`ollama`) / Custom OpenAI-compatible endpoints
+
+Configure credentials via standard environment variables:
+```bash
+GEMINI_API_KEY="your-key"
+# or OPENAI_API_KEY, ANTHROPIC_API_KEY, OPENROUTER_API_KEY, DEEPSEEK_API_KEY, GROQ_API_KEY, OLLAMA_BASE_URL
+GITHUB_TOKEN="ghp_xxx"               # Optional: For automated remote push & PR creation
+GITHUB_REPOSITORY="owner/repo"       # Optional: GitHub repo slug
+```
+
+---
+
+## 🧪 Testing
+
+Run unit tests via Vitest:
+```bash
+npm test
+```
+
+Run the end-to-end integration suite:
 ```bash
 npm run e2e
 ```
 
-Run the unit test suites:
+Compile TypeScript definitions:
 ```bash
-npm test
+npm run build
 ```
 
 ---
 
 ## 📄 License
-Apache 2.0. Pure TypeScript open-source data resilience library.
+
+[Apache 2.0](LICENSE) © Rez Contributors.

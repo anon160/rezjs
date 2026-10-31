@@ -4,6 +4,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { z } from "zod";
 import {
+  Rez,
+  rez,
   AutoDataOps,
   resilient,
   defineConfig,
@@ -11,7 +13,7 @@ import {
   MemoryPatchCatalog,
 } from "../src/index.js";
 
-describe("AutoDataOps / Resilient SDK with Mandatory Git & User Contracts", () => {
+describe("Rez (rezjs) SDK with Mandatory Git & User Contracts", () => {
   it("should fail fast if running outside a Git repository", async () => {
     const nonGitDir = fs.mkdtempSync(path.join(os.tmpdir(), "non-git-"));
     try {
@@ -186,8 +188,10 @@ describe("AutoDataOps / Resilient SDK with Mandatory Git & User Contracts", () =
     ).rejects.toThrow(/Contract "NonExistentContract" is not registered/i);
   });
 
-  it("should support top-level resilient singleton export", async () => {
+  it("should support top-level rez and resilient singleton export", async () => {
+    expect(rez).toBeDefined();
+    expect(typeof rez.ingest).toBe("function");
     expect(resilient).toBeDefined();
-    expect(typeof resilient.ingest).toBe("function");
+    expect(Rez).toBe(AutoDataOps);
   });
 });

@@ -56,7 +56,7 @@ export interface ModelConfig {
 
 export type ContractDefinition = z.ZodTypeAny | Record<string, string>;
 
-export interface ResilientConfig {
+export interface RezConfig {
   /**
    * LLM model and provider configuration.
    */
@@ -71,14 +71,20 @@ export interface ResilientConfig {
   contracts?: Record<string, ContractDefinition>;
 }
 
+export type ResilientConfig = RezConfig;
+
 /**
- * Type-safe helper to define Resilient / AutoDataOps configuration.
+ * Type-safe helper to define Rez configuration.
  */
-export function defineConfig(config: ResilientConfig): ResilientConfig {
+export function defineConfig(config: RezConfig): RezConfig {
   return config;
 }
 
 const CONFIG_CANDIDATES = [
+  "rez.config.ts",
+  "rez.config.js",
+  "rez.config.mjs",
+  "rez.config.json",
   "resilient.config.ts",
   "resilient.config.js",
   "resilient.config.mjs",
@@ -92,11 +98,11 @@ const CONFIG_CANDIDATES = [
  * Discovers and loads configuration from disk or returns defaults.
  */
 export async function loadConfig(
-  explicitConfig?: ResilientConfig,
+  explicitConfig?: RezConfig,
   cwd: string = process.cwd()
-): Promise<ResilientConfig> {
+): Promise<RezConfig> {
   const root = path.resolve(cwd);
-  let diskConfig: ResilientConfig = {};
+  let diskConfig: RezConfig = {};
 
   for (const filename of CONFIG_CANDIDATES) {
     const fullPath = path.join(root, filename);
@@ -113,7 +119,7 @@ export async function loadConfig(
           break;
         }
       } catch (err: any) {
-        console.warn(`[AutoDataOps] Warning: failed to load config from ${filename}: ${err?.message || err}`);
+        console.warn(`[rez] Warning: failed to load config from ${filename}: ${err?.message || err}`);
       }
     }
   }
@@ -134,7 +140,11 @@ export async function loadConfig(
   };
 
   let mergedModel: ModelConfig | string | undefined =
-    explicitConfig?.model ?? diskConfig.model ?? process.env.AUTODATAOPS_MODEL ?? process.env.RESILIENT_LLM_MODEL;
+    explicitConfig?.model ??
+    diskConfig.model ??
+    process.env.REZ_MODEL ??
+    process.env.AUTODATAOPS_MODEL ??
+    process.env.RESILIENT_LLM_MODEL;
 
   const mergedContracts: Record<string, ContractDefinition> = {
     ...(diskConfig.contracts || {}),

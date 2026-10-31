@@ -1,5 +1,5 @@
 /**
- * AutoDataOps / Resilient — Pure TypeScript AI-Native Data Resilience & Schema Drift Engine.
+ * Rez (rezjs) — Pure TypeScript AI-Native Data Resilience & Schema Drift Engine.
  *
  * Intercepts schema drift, sandboxes AI-synthesized patches in WebAssembly QuickJS,
  * and enforces Git as the mandatory versioned patch ledger & review system.
@@ -12,10 +12,10 @@ import { BasePatchCatalog, FilePatchCatalog } from "./catalog.js";
 import { executePatch } from "./sandbox.js";
 import { createGitReviewBranch, isGitRepository } from "./git-review.js";
 import { runSelfHealingAgent } from "./ai-engine.js";
-import { ResilientConfig, ModelConfig, ContractDefinition, defineConfig, loadConfig } from "./config.js";
+import { RezConfig, ModelConfig, ContractDefinition, defineConfig, loadConfig } from "./config.js";
 
-export interface AutoDataOpsOptions {
-  config?: ResilientConfig;
+export interface RezOptions {
+  config?: RezConfig;
   schema?: string;
   fieldSpecs?: Record<string, string>;
   contract?: ContractDefinition;
@@ -29,6 +29,8 @@ export interface AutoDataOpsOptions {
   model?: ModelConfig | string;
 }
 
+export type AutoDataOpsOptions = RezOptions;
+
 export interface IngestOptions<T = any> {
   source: string;
   payload: Record<string, any>;
@@ -36,7 +38,7 @@ export interface IngestOptions<T = any> {
   model?: ModelConfig | string;
 }
 
-export class AutoDataOps {
+export class Rez {
   public defaultSchemaName: string;
   public repoDir: string;
   public patchDir: string;
@@ -47,7 +49,7 @@ export class AutoDataOps {
   public catalog: BasePatchCatalog;
   private contracts = new Map<string, ContractDefinition>();
 
-  constructor(options: AutoDataOpsOptions = {}) {
+  constructor(options: RezOptions = {}) {
     this.repoDir = path.resolve(options.repoDir || options.config?.git?.repoDir || process.cwd());
     this.patchDir = options.patchDir || options.config?.git?.patchDir || "patches";
     this.baseBranch = options.baseBranch || options.config?.git?.baseBranch || "main";
@@ -110,7 +112,7 @@ export class AutoDataOps {
     const isRepo = await isGitRepository(this.repoDir);
     if (!isRepo) {
       throw new Error(
-        `[AutoDataOps] Git repository is mandatory. AutoDataOps uses Git as its versioned patch ledger and review system. Please initialize a git repository ('git init') or specify a valid 'repoDir' in config.`
+        `[rez] Git repository is mandatory. Rez uses Git as its versioned patch ledger and review system. Please initialize a git repository ('git init') or specify a valid 'repoDir' in config.`
       );
     }
   }
@@ -134,7 +136,7 @@ export class AutoDataOps {
       const found = this.contracts.get(schema);
       if (!found) {
         throw new Error(
-          `[AutoDataOps] Contract "${schema}" is not registered. Define it in resilient.config.ts or call registerContract().`
+          `[rez] Contract "${schema}" is not registered. Define it in rez.config.ts or call registerContract().`
         );
       }
       contractToUse = found;
@@ -146,7 +148,7 @@ export class AutoDataOps {
       const found = this.contracts.get(this.defaultSchemaName);
       if (!found) {
         throw new Error(
-          `[AutoDataOps] Default contract "${this.defaultSchemaName}" is not registered. Provide a contract in config or options.`
+          `[rez] Default contract "${this.defaultSchemaName}" is not registered. Provide a contract in config or options.`
         );
       }
       contractToUse = found;
@@ -248,11 +250,13 @@ export class AutoDataOps {
   public static loadConfig = loadConfig;
 }
 
-// Resilient is an alias for AutoDataOps
-export const Resilient = AutoDataOps;
+// Aliases for backwards compatibility
+export const AutoDataOps = Rez;
+export const Resilient = Rez;
 
 // Default singleton instance ready for immediate import
-export const resilient = new AutoDataOps();
+export const rez = new Rez();
+export const resilient = rez;
 
 // Re-export submodules
 export * from "./models.js";

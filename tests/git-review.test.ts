@@ -36,7 +36,7 @@ describe("GitOps Review Engine with simple-git", () => {
 
     expect(fs.existsSync(filePath)).toBe(true);
     const content = fs.readFileSync(filePath, "utf-8");
-    expect(content).toContain("AutoDataOps Self-Healing Schema Patch");
+    expect(content).toContain("Rez (rezjs) Self-Healing Schema Patch");
     expect(content).toContain("Source Feed:   vendor_maersk");
     expect(content).toContain("Patch Version: v1");
     expect(content).toContain("function transform(raw)");
@@ -52,7 +52,7 @@ describe("GitOps Review Engine with simple-git", () => {
 
   it("should generate comprehensive PR markdown bodies", () => {
     const md = generatePrMarkdown("vendor_feed", "Shipment", "function transform(raw) { return raw; }", "Missing container_id");
-    expect(md).toContain("AutoDataOps Autonomous Patch Review");
+    expect(md).toContain("Rez Autonomous Patch Review");
     expect(md).toContain("vendor_feed");
     expect(md).toContain("Missing container_id");
   });
@@ -79,12 +79,12 @@ describe("GitOps Review Engine with simple-git", () => {
       repoDir: tmpDir,
     });
 
-    expect(result.branchName).toBe("autodataops-patch/patch-hapag_feed-v1");
+    expect(result.branchName).toBe("rez-patch/patch-hapag_feed-v1");
     expect(result.commitMessage).toContain("hapag_feed");
 
     // Verify branch was created and is listed
     const reviewBranches = await listReviewBranches(tmpDir);
-    expect(reviewBranches).toContain("autodataops-patch/patch-hapag_feed-v1");
+    expect(reviewBranches).toContain("rez-patch/patch-hapag_feed-v1");
 
     // Verify commit tree has the patch file
     const log = await git.log({ from: "HEAD", to: result.branchName });

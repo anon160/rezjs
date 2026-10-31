@@ -37,7 +37,7 @@ export function exportPatchFile(
 
   const timestamp = new Date().toISOString();
   const header = `/**
- * AutoDataOps Self-Healing Schema Patch
+ * Rez (rezjs) Self-Healing Schema Patch
  * Source Feed:   ${sourceId}
  * Target Schema: ${schemaName}
  * Patch Version: v${version}
@@ -69,7 +69,9 @@ export async function listReviewBranches(repoDir?: string): Promise<string[]> {
   try {
     const git = simpleGit(cwd);
     const branchSummary = await git.branchLocal();
-    return branchSummary.all.filter((b) => b.startsWith("autodataops-patch/"));
+    return branchSummary.all.filter(
+      (b) => b.startsWith("rez-patch/") || b.startsWith("autodataops-patch/")
+    );
   } catch {
     return [];
   }
@@ -94,7 +96,7 @@ export function generatePrMarkdown(
 ): string {
   if (customBody && customBody.trim()) return customBody.trim();
 
-  return `## 🤖 AutoDataOps Autonomous Patch Review
+  return `## 🤖 Rez Autonomous Patch Review
 
 ### Incident Overview
 - **Source Identifier:** \`${sourceId}\`
@@ -145,7 +147,7 @@ export async function createGitReviewBranch(options: {
 
   const cwd = repoDir ? path.resolve(repoDir) : process.cwd();
   const cleanSource = sanitizeName(sourceId);
-  const branchName = `autodataops-patch/patch-${cleanSource}-v${version}`;
+  const branchName = `rez-patch/patch-${cleanSource}-v${version}`;
 
   // 1. Export patch file to patches/
   const patchFilePath = exportPatchFile(patchCode, sourceId, schemaName, version, cwd);

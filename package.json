@@ -1,23 +1,43 @@
 {
-  "name": "autodataops",
+  "name": "rezjs",
   "version": "1.0.0",
-  "description": "AI-native schema resilience & self-healing library with GitOps PR review",
+  "description": "The automated immune system for third-party webhooks and APIs. AI schema resilience, QuickJS WebAssembly sandboxing, and GitOps review.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
     "build": "tsc",
+    "prepack": "npm run build",
     "test": "vitest run",
     "e2e": "tsx test-e2e.ts"
   },
   "keywords": [
+    "rez",
+    "rezjs",
+    "resilience",
     "schema-drift",
     "self-healing",
-    "dataops",
     "webhooks",
+    "dataops",
     "gitops",
     "zod",
-    "ai-sdk"
+    "ai-sdk",
+    "quickjs",
+    "webassembly"
   ],
   "author": "",
   "license": "Apache-2.0",
