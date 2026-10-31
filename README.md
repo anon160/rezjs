@@ -1,6 +1,6 @@
 # Rez (`rezjs`)
 
-[![CI](https://github.com/your-org/rezjs/actions/workflows/ci.yml/badge.svg)](https://github.com/your-org/rezjs/actions/workflows/ci.yml)
+[![CI](https://github.com/anon160/rezjs/actions/workflows/ci.yml/badge.svg)](https://github.com/anon160/rezjs/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![npm version](https://img.shields.io/npm/v/rezjs.svg)](https://www.npmjs.com/package/rezjs)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen.svg)](https://nodejs.org/)
